@@ -6,6 +6,7 @@ const STORAGE_KEY = "ai-closer-config";
 
 /** Curated valid OpenRouter model slugs — cheap picks that actually exist. */
 const MODEL_PRESETS = [
+  "deepseek/deepseek-v4-flash-0731",
   "deepseek/deepseek-chat",
   "deepseek/deepseek-v3-0724",
   "deepseek/deepseek-reasoner",
@@ -29,7 +30,7 @@ function loadConfig(): Config {
   } catch {
     /* ignore */
   }
-  return { apiKey: "", model: "deepseek/deepseek-chat" };
+  return { apiKey: "", model: "deepseek/deepseek-v4-flash-0731" };
 }
 
 function saveConfig(c: Config) {
@@ -107,7 +108,7 @@ export function App() {
   );
 
   const applySettings = () => {
-    const next = { apiKey: apiKeyDraft.trim(), model: modelDraft.trim() || "deepseek/deepseek-chat" };
+    const next = { apiKey: apiKeyDraft.trim(), model: modelDraft.trim() || "deepseek/deepseek-v4-flash-0731" };
     setConfig(next);
     saveConfig(next);
     setSettingsOpen(false);
