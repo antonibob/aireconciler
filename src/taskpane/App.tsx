@@ -376,18 +376,19 @@ export function App() {
       )}
 
       <div className="chat-scroll" ref={scrollRef}>
-        {messages.map((m, i) => (
-          <div key={i} className={`bubble ${m.role}${m.error ? " error" : ""}`}>
-            {m.role === "user" && m.text.startsWith("[PASTED DATA") && (
-              <div className="data-badge">📋 pasted table</div>
-            )}
-            <pre className="bubble-text">
-              {m.text.replace(/\[PASTED DATA[^\n]*\n/, "")}
-            </pre>
-          </div>
-        ))}
+        {messages.map((m, i) => {
+          const isPasted = m.role === "user" && m.text.startsWith("[PASTED DATA");
+          return (
+            <div key={i} className={`bubble ${m.role}${m.error ? " error" : ""}`}>
+              {isPasted && <div className="data-badge">📋 pasted table</div>}
+              <pre className={`bubble-text${isPasted ? " bubble-data" : ""}`}>
+                {m.text.replace(/\[PASTED DATA[^\n]*\n/, "")}
+              </pre>
+            </div>
+          );
+        })}
         {busy && (
-          <div className="bubble assistant">
+          <div className="bubble assistant typing-bubble">
             <pre className="bubble-text typing">…</pre>
           </div>
         )}

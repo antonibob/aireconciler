@@ -1,22 +1,22 @@
 /* ============================================================
-   AI Closer — glassmorphism + pills, one accent, no slop.
+   AI Closer — "precision instrument" design language.
+   Dense, editorial, ruled. A tool for a finance brain, not a
+   generic AI chat app. One accent (ink), monospace for data.
    ============================================================ */
 :root {
-  --g-bg-1: #f5f5f4;
-  --g-bg-2: #eceae8;
-  --glass: rgba(255, 255, 255, 0.66);
-  --glass-strong: rgba(255, 255, 255, 0.88);
-  --glass-border: rgba(255, 255, 255, 0.75);
-  --hairline: rgba(15, 15, 15, 0.08);
-  --ink: #111111;
-  --muted: #606060;
-  --faint: #9c9c9c;
-  --accent: #111111;
-  --accent-soft: rgba(17, 17, 17, 0.08);
-  --accent-glow: rgba(17, 17, 17, 0.22);
-  --shadow: 0 20px 45px -22px rgba(20, 20, 20, 0.35);
-  --pill: 999px;
-  --card-r: 20px;
+  --paper: #fbfaf7;          /* warm off-white paper */
+  --paper-2: #f0ede6;        /* slightly darker field */
+  --rule: #e2ddd2;           /* hairline ruled lines */
+  --rule-strong: #d6d0c2;    /* stronger rule */
+  --ink: #141310;            /* near-black warm ink */
+  --muted: #6b665c;          /* soft body text */
+  --faint: #a49d8e;          /* faint labels */
+  --accent: #b8470f;         /* burnt sienna — the one hot accent */
+  --accent-soft: rgba(184, 71, 15, 0.10);
+  --good: #1a7f4e;
+  --warn: #b8470f;
+  --data-bg: #f3f1ea;        /* code/data block background */
+  --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
 }
 
 * {
@@ -29,7 +29,7 @@ body {
 }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  background: linear-gradient(150deg, var(--g-bg-1) 0%, var(--g-bg-2) 100%);
+  background: var(--paper);
   color: var(--ink);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
@@ -43,117 +43,105 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  max-width: 780px;
+  max-width: 720px;
   margin: 0 auto;
-  padding: 12px 14px;
+  padding: 0 18px;
 }
 
-/* ============ Header ============ */
+/* ============ Header — small, ruled, editorial ============ */
 .chat-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
-  padding: 10px 16px;
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--pill);
-  backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  box-shadow: var(--shadow);
+  padding: 16px 0 10px;
+  border-bottom: 1px solid var(--rule-strong);
 }
 .chat-title {
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--ink);
 }
 .status-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
   background: var(--faint);
-  transition: background 0.2s, box-shadow 0.2s;
+  transition: background 0.2s;
 }
 .status-dot.on {
-  background: #2fd07c;
-  box-shadow: 0 0 0 4px rgba(47, 208, 124, 0.15);
+  background: var(--good);
 }
 .chat-subtitle {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: right;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
 }
 .icon-btn {
   border: none;
   background: transparent;
-  font-size: 16px;
+  font-size: 15px;
   cursor: pointer;
   color: var(--muted);
-  padding: 6px 10px;
-  border-radius: var(--pill);
-  transition: background 0.15s, color 0.15s;
+  padding: 4px 6px;
+  transition: color 0.15s;
 }
 .icon-btn:hover {
   color: var(--ink);
-  background: var(--accent-soft);
 }
 
-/* ============ Settings ============ */
+/* ============ Settings — flat, ruled ============ */
 .settings {
-  background: var(--glass-strong);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--card-r);
-  padding: 16px 18px;
-  margin: 10px 2px 4px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  padding: 14px 16px;
+  margin: 10px 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  box-shadow: var(--shadow);
 }
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 .field span {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   color: var(--muted);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .field input,
 .model-select,
 .model-custom {
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid var(--hairline);
+  background: #fff;
+  border: 1px solid var(--rule-strong);
   color: var(--ink);
-  border-radius: 14px;
-  padding: 10px 14px;
+  border-radius: 2px;
+  padding: 9px 12px;
   font-size: 13px;
   font-family: inherit;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s;
 }
 .field input:focus,
 .model-select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .model-custom {
   margin-top: 2px;
 }
 .model-select option {
   background: #fff;
-  color: var(--ink);
 }
 .settings-actions {
   display: flex;
@@ -163,38 +151,33 @@ body {
 .settings-actions a {
   font-size: 12px;
   color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-.settings-actions a:hover {
   text-decoration: underline;
+  font-weight: 600;
 }
 
 /* ============ Chat scroll ============ */
 .chat-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 2px 10px;
+  padding: 16px 0 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px;
   scrollbar-width: thin;
-  scrollbar-color: var(--faint) transparent;
+  scrollbar-color: var(--rule-strong) transparent;
 }
 
-/* ============ Bubbles (pills) ============ */
+/* ============ Messages — flat columns, editorial type, mono data ============ */
 .bubble {
-  max-width: 88%;
-  padding: 11px 18px;
+  max-width: 90%;
   font-size: 14px;
-  line-height: 1.5;
-  border-radius: 22px;
-  animation: rise 0.22s ease-out;
+  line-height: 1.55;
+  animation: rise 0.18s ease-out;
 }
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
@@ -203,24 +186,21 @@ body {
 }
 .bubble.user {
   align-self: flex-end;
-  color: #fff;
-  background: #111111;
-  border-bottom-right-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  color: var(--ink);
+  border-top: 1px solid var(--rule-strong);
+  padding-top: 6px;
+  border-right: 2px solid var(--accent);
+  padding-right: 4px;
 }
 .bubble.assistant {
   align-self: flex-start;
-  background: var(--glass);
-  border: 1px solid var(--hairline);
-  border-bottom-left-radius: 8px;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   color: var(--ink);
+  border-top: 1px solid var(--rule);
+  padding-top: 6px;
 }
 .bubble.error {
-  background: rgba(255, 99, 99, 0.09);
-  border-color: rgba(255, 99, 99, 0.4);
-  color: #d3333a;
+  color: #c8332a;
+  border-top-color: rgba(200, 51, 42, 0.4);
 }
 .bubble-text {
   margin: 0;
@@ -228,97 +208,102 @@ body {
   word-wrap: break-word;
   font-family: inherit;
 }
+.bubble-data {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: #3a362c;
+}
+.typing-bubble .bubble-text {
+  color: var(--faint);
+}
 .data-badge {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  color: var(--muted);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: var(--accent);
   margin-bottom: 4px;
 }
-.bubble.typing {
-  color: var(--muted);
-}
 
-/* ============ Input ============ */
+/* ============ Input — ruled field, flat ============ */
 .chat-input-wrap {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 10px 2px 2px;
-}
-.composer-hint {
-  text-align: center;
-  font-size: 11px;
-  color: var(--faint);
-  padding: 6px 0 4px;
-  letter-spacing: 0.01em;
+  padding: 10px 2px 6px;
+  border-top: 1px solid var(--rule-strong);
 }
 .chat-input {
   flex: 1;
   resize: none;
-  border: 1px solid var(--hairline);
-  border-radius: 24px;
-  padding: 12px 18px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  padding: 11px 13px;
   font-size: 14px;
   font-family: inherit;
-  background: var(--glass-strong);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  background: #fff;
   color: var(--ink);
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s;
 }
 .chat-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .chat-input::placeholder {
-  color: var(--muted);
+  color: var(--faint);
 }
 .send-btn {
-  height: 48px;
-  width: 58px;
-  border: none;
-  border-radius: 999px;
-  background: #111111;
+  height: 44px;
+  width: 52px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--ink);
   color: #fff;
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
   flex: none;
-  transition: transform 0.1s, filter 0.15s;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
+  transition: background 0.15s, transform 0.1s;
 }
 .send-btn:hover:not(:disabled) {
-  filter: brightness(1.06);
-  transform: translateY(-1px);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .send-btn:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
 }
+.composer-hint {
+  font-size: 10.5px;
+  color: var(--faint);
+  padding: 5px 0 8px;
+  letter-spacing: 0.02em;
+}
 
-/* ============ Buttons ============ */
+/* ============ Buttons — flat, sharp ============ */
 .btn {
-  padding: 10px 18px;
-  border: none;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 650;
+  padding: 9px 16px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 700;
   cursor: pointer;
   flex: none;
-  transition: filter 0.15s, transform 0.1s;
-  box-shadow: 0 6px 18px var(--accent-glow);
+  transition: background 0.15s, color 0.15s;
 }
 .btn:hover:not(:disabled) {
-  filter: brightness(1.06);
+  background: var(--ink);
+  color: #fff;
 }
 .undo-btn {
-  background: #ffb020;
-  color: #3a2500;
-  box-shadow: 0 6px 18px rgba(255, 176, 32, 0.35);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.undo-btn:hover:not(:disabled) {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #fff;
 }
 .btn:disabled {
   opacity: 0.5;
