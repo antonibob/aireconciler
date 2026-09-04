@@ -32,7 +32,10 @@ function handler(req, res) {
   }
   try {
     const body = readFileSync(file);
-    res.writeHead(200, { "Content-Type": MIME[extname(file)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": MIME[extname(file)] || "application/octet-stream",
+      "Cache-Control": "no-store",
+    });
     res.end(body);
   } catch {
     res.writeHead(404).end("not found");
