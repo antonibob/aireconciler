@@ -22,7 +22,18 @@ function mount() {
 declare global {
   interface Window {
     Office?: { onReady(cb: (info: unknown) => void): void };
+    Excel?: {
+      run(context: unknown, cb: (ctx: ExcelContext) => Promise<unknown>): Promise<unknown>;
+    };
   }
+}
+
+// Minimal structural Excel context used at runtime.
+export interface ExcelContext {
+  workbook: {
+    getActiveCell(): { address: string; values: Array<Array<unknown>>; values2?: never };
+  };
+  sync(): Promise<void>;
 }
 
 if (window.Office?.onReady) {

@@ -114,6 +114,40 @@ export function App() {
     setSettingsOpen(false);
   };
 
+  /** Write the last assistant reply (a formula or value) into the active cell. */
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
+  const writeToActiveCell = async () => {
+    if (!lastAssistant) return;
+    const exl = window.Excel;
+    if (!exl) {
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", text: "I'm not inside an Excel host (running as a web demo), so I can't write to a cell. Run this as an add-in to write formulas.", error: true },
+      ]);
+      return;
+    }
+    try {
+      // Strip backtick fences and leading "=" so a formula lands cleanly.
+      let val = lastAssistant.text.replace(/```/g, "").trim();
+      if (val.startsWith("=")) val = val; // formulas keep their "="
+      const write = val;
+      await exl.run({}, async (ctx) => {
+        const cell = ctx.workbook.getActiveCell();
+        cell.values = [[write]];
+        await ctx.sync();
+      });
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", text: `Wrote "${write.slice(0, 60)}" to ${"the active cell"}.`, },
+      ]);
+    } catch (err) {
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", text: `Couldn't write to the cell: ${err instanceof Error ? err.message : String(err)}`, error: true },
+      ]);
+    }
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -193,6 +227,11 @@ export function App() {
         {!config.apiKey && (
           <button className="btn" onClick={() => setSettingsOpen(true)}>
             Add your API key to start
+          </button>
+        )}
+        {lastAssistant && (
+          <button className="btn insert-btn" onClick={writeToActiveCell} disabled={busy}>
+            ↧ Insert to cell
           </button>
         )}
         <textarea

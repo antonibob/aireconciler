@@ -71,3 +71,25 @@ export function parseStatementTotals(
     }))
     .filter((r) => r.last4.length === 4);
 }
+
+/** Write a value (string/number/formula) into a range address like "A1". */
+export function writeToRange(
+  sheet: {
+    getRange(address: string): { values: unknown };
+  },
+  address: string,
+  value: string | number,
+): void {
+  sheet.getRange(address).values = [[value]];
+}
+
+/** Write a 2D array into a range, e.g. [["a",1],["b",2]] at "A1". */
+export function writeArrayToRange(
+  sheet: {
+    getRange(address: string): { values: unknown };
+  },
+  address: string,
+  values: Array<Array<string | number>>,
+): void {
+  sheet.getRange(address).values = values;
+}

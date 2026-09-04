@@ -175,3 +175,7 @@
   font-weight: 600;
   cursor: pointer;
 }
+.insert-btn {
+  background: #0aa06e;
+  flex: none;
+}
