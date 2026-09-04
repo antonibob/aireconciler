@@ -4,6 +4,17 @@ import "./App.css";
 
 const STORAGE_KEY = "ai-closer-config";
 
+/** Curated valid OpenRouter model slugs — cheap picks that actually exist. */
+const MODEL_PRESETS = [
+  "deepseek/deepseek-chat",
+  "deepseek/deepseek-v3-0724",
+  "anthropic/claude-3.5-haiku",
+  "openai/gpt-4o-mini",
+  "google/gemini-2.0-flash",
+  "meta-llama/llama-3.3-70b-instruct",
+  "mistralai/mistral-small-latest",
+];
+
 interface Config {
   apiKey: string;
   model: string;
@@ -16,7 +27,7 @@ function loadConfig(): Config {
   } catch {
     /* ignore */
   }
-  return { apiKey: "", model: "deepseek/deepseek-v3-0724" };
+  return { apiKey: "", model: "deepseek/deepseek-chat" };
 }
 
 function saveConfig(c: Config) {
@@ -94,7 +105,7 @@ export function App() {
   );
 
   const applySettings = () => {
-    const next = { apiKey: apiKeyDraft.trim(), model: modelDraft.trim() || "deepseek/deepseek-v3-0724" };
+    const next = { apiKey: apiKeyDraft.trim(), model: modelDraft.trim() || "deepseek/deepseek-chat" };
     setConfig(next);
     saveConfig(next);
     setSettingsOpen(false);
@@ -130,7 +141,17 @@ export function App() {
           </label>
           <label className="field">
             <span>Model</span>
-            <input value={modelDraft} onChange={(e) => setModelDraft(e.target.value)} />
+            <input
+              list="model-presets"
+              value={modelDraft}
+              onChange={(e) => setModelDraft(e.target.value)}
+              placeholder="deepseek/deepseek-chat"
+            />
+            <datalist id="model-presets">
+              {MODEL_PRESETS.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
           </label>
           <div className="settings-actions">
             <button className="btn" onClick={applySettings}>

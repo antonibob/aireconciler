@@ -17,7 +17,7 @@ export interface ModelConfig {
   baseUrl?: string;
 }
 
-export const DEFAULT_MODEL = "deepseek/deepseek-v3-0724";
+export const DEFAULT_MODEL = "deepseek/deepseek-chat";
 const DEFAULT_BASE = "https://openrouter.ai/api/v1";
 
 export interface ChatResult {
