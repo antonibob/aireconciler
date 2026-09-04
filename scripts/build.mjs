@@ -25,8 +25,8 @@ await build({
 mkdirSync("dist/assets", { recursive: true });
 copyFileSync("src/taskpane/taskpane.html", "dist/taskpane.html");
 copyFileSync("src/taskpane/taskpane.html", "dist/commands.html");
-for (const s of [16, 32, 80]) {
-  copyFileSync(`src/assets/icon-${s}.png`, `dist/assets/icon-${s}.png`);
-}
+// Manifest is served from dist so the Trusted Catalog can point at
+// https://localhost:3000/manifest.xml.
+copyFileSync("manifest.xml", "dist/manifest.xml");
 
 console.log("Built dist/. Watch it at http://localhost:3000/taskpane.html");
