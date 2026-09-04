@@ -124,6 +124,10 @@ export function App() {
   const wantsTable = (t: string) =>
     /\b(convert|make|create|turn|format)\b.*\b(table|as a table|into a table)\b/i.test(t);
 
+  /** Does the prompt ask to reconcile/match two columns? */
+  const wantsReconcile = (t: string) =>
+    /\b(reconcil|match|tie.?out|compare|balance these|two columns|GL vs bank|book vs)\b/i.test(t);
+
   const send = useCallback(
     async (text: string) => {
       if (!text.trim() || busy) return;
@@ -169,7 +173,13 @@ export function App() {
         ];
 
         // Convert selection to an Excel Table — no model needed, do it.
-        if (wantsTable(text)) {
+        // Reconcile selected columns — deterministic, no model arithmetic.
+        if (wantsReconcile(text) && sheetCtx && sheetCtx.selection.length > 0) {
+          const { reconcileTwoColumns } = await import("./reconcile.js");
+          const sel = sheetCtx.selection as Array<Array<string | number | null | undefined>>;
+          const res = reconcileTwoColumns(sel, 0, 1);
+          setMessages((m) => [...m, { role: "assistant", text: res.text, error: false }]);
+        } else if (wantsTable(text)) {
           await convertTable();
         } else if (wantsApply(text) || wantsWrite(text)) {
           const res = await chatCompletionArray(baseHistory, {
