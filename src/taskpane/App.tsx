@@ -189,36 +189,6 @@ export function App() {
     setSettingsOpen(false);
   };
 
-  /** Snapshot timing helper — run a write with undo capture around it. */
-  const capturePrior = async (
-    run: (ctx: { workbook: unknown; sync(): Promise<unknown>; [k: string]: unknown }) => Promise<void>,
-  ): Promise<{ address: string; values: Array<Array<unknown>> } | null> => {
-    let snap: { address: string; values: Array<Array<unknown>> } | null = null;
-    try {
-      await (window.Excel as unknown as {
-        run(cb: (ctx: {
-          workbook: { getSelectedRange(): RangeInfo & { getResizedRange(dr: number, dc: number): RangeInfo } & { load?(p: string): void } & { address: string } };
-          sync(): Promise<unknown>;
-        }) => Promise<void> | void): Promise<unknown>;
-      }).run(async (ctx) => {
-        const anchor = ctx.workbook.getSelectedRange();
-        const h = 1;
-        const w = 1;
-        const dest = anchor.getResizedRange(h - 1, w - 1);
-        dest.load?.("values");
-        await ctx.sync();
-        snap = {
-          address: dest.address,
-          values: (dest as unknown as { values: Array<Array<unknown>> }).values,
-        };
-        await run(ctx as never);
-      });
-    } catch (err) {
-      return null;
-    }
-    return snap;
-  };
-
   /** Write a rect (rows) into the selected range, snapshotting prior cells for undo. Returns true on success, false if no Excel host. */
   const writeRectToSelection = async (rows: Array<Array<string | number>>, note: string): Promise<boolean> => {
     if (!window.Excel) {
@@ -228,13 +198,7 @@ export function App() {
     const clean = rows.filter((r) => r.some((v) => v !== "" && v !== null && v !== undefined));
     if (clean.length === 0) return false;
     try {
-      const stamp = await capturePrior(async (ctx) => {
-        (ctx as unknown as {
-          workbook: { getSelectedRange(): RangeInfo & { getResizedRange(dr: number, dc: number): RangeInfo } };
-          sync(): Promise<unknown>;
-        }).workbook.getSelectedRange();
-      });
-      // Actually write now.
+      // Actually write now, snapshotting prior values for undo right before overwrite.
       await (window.Excel as unknown as {
         run(cb: (ctx: { workbook: { getSelectedRange(): RangeInfo & { getResizedRange(dr: number, dc: number): RangeInfo } }; sync(): Promise<unknown> }) => Promise<void> | void): Promise<unknown>;
       }).run(async (ctx) => {
@@ -243,10 +207,11 @@ export function App() {
         const w = clean[0]?.length ?? 1;
         const dest = anchor.getResizedRange(h - 1, w - 1);
         // Snapshot prior for undo right before overwrite.
-        dest.load?.("values");
+        dest.load?.("address,values");
         await ctx.sync();
         const prior = (dest as unknown as { values: Array<Array<unknown>> }).values;
-        setUndo({ address: dest.address ?? anchor.address ?? "(selected)", values: prior });
+        const addr = (dest as unknown as { address: string }).address ?? anchor.address ?? "(selected)";
+        setUndo({ address: addr, values: prior });
         dest.values = clean.map((r) => {
           const row = new Array(w).fill(null);
           r.forEach((v, i) => {
@@ -257,7 +222,6 @@ export function App() {
         await ctx.sync();
       });
       setMessages((m) => [...m, { role: "assistant", text: `✓ ${note}`, }]);
-      void stamp;
       return true;
     } catch (err) {
       setMessages((m) => [...m, { role: "assistant", text: `Couldn't write: ${err instanceof Error ? err.message : String(err)}`, error: true }]);
