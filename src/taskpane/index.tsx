@@ -40,6 +40,7 @@ declare global {
 export interface RangeInfo {
   address: string;
   values: Array<Array<unknown>>;
+  formulas?: Array<Array<unknown>>;
   rowCount?: number;
   load?(properties: string): void;
 }

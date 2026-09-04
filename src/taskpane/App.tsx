@@ -14,19 +14,30 @@ export async function gatherSheetContext(): Promise<{
   if (!exl) return null;
   let selAddr = "";
   let sel: Array<Array<unknown>> = [];
+  let formulas: Array<Array<unknown>> = [];
   try {
     await exl.run(async (ctx) => {
       const range = ctx.workbook.getSelectedRange();
-      range.load?.("address,values");
+      range.load?.("address,values,formulas");
       await ctx.sync();
       selAddr = (range as unknown as RangeInfo).address || "";
       sel = (range as unknown as RangeInfo).values || [];
+      formulas = (range as unknown as { formulas: Array<Array<unknown>> }).formulas || [];
     });
   } catch {
     /* selection read failed; continue without it */
   }
-  // Serialize the selection compactly for the prompt.
-  const sample = sel.slice(0, 12).map((r) => r.join(" | "));
+  // Serialize the selection compactly for the prompt. When a cell holds a
+  // formula, show the FORMULA (not just the value) so the model sees the
+  // relationship. A cell that is a plain value shows its value.
+  const sample = sel.slice(0, 12).map((row, ri) =>
+    row.map((v, ci) => {
+      const f = formulas[ri]?.[ci];
+      return f !== undefined && typeof f === "string" && (f as string).startsWith("=")
+        ? String(f)
+        : String(v ?? "");
+    }).join(" | "),
+  );
   return {
     selectionAddress: selAddr,
     selection: sel,
@@ -212,19 +223,33 @@ export function App() {
         const h = clean.length;
         const w = clean[0]?.length ?? 1;
         const dest = anchor.getResizedRange(h - 1, w - 1);
-        // Snapshot prior for undo right before overwrite.
-        dest.load?.("address,values");
+        // Snapshot prior formulas+address for undo right before overwrite.
+        dest.load?.("address,formulas");
         await ctx.sync();
-        const prior = (dest as unknown as { values: Array<Array<unknown>> }).values;
+        const prior = (dest as unknown as { formulas: Array<Array<unknown>> }).formulas;
         const addr = (dest as unknown as { address: string }).address ?? anchor.address ?? "(selected)";
         setUndo({ address: addr, values: prior });
-        dest.values = clean.map((r) => {
-          const row = new Array(w).fill(null);
+        // Build the write. Cells that are formulas (start with =) go through
+        // .formulas so they STAY live formulas; plain values go through .values.
+        const valueRows: Array<Array<string | number>> = [];
+        const formulaRows: Array<Array<string>> = [];
+        for (const r of clean) {
+          const vrow = new Array(w).fill(null);
+          const frow = new Array(w).fill(null);
           r.forEach((v, i) => {
-            if (i < w) row[i] = v;
+            if (i < w) {
+              if (typeof v === "string" && v.startsWith("=")) {
+                frow[i] = v;
+              } else {
+                vrow[i] = v;
+              }
+            }
           });
-          return row;
-        });
+          valueRows.push(vrow);
+          formulaRows.push(frow);
+        }
+        dest.values = valueRows;
+        dest.formulas = formulaRows;
         await ctx.sync();
       });
       // Verify by reading back what was written (never report a write that didn't land).
@@ -235,9 +260,9 @@ export function App() {
         }).run(async (ctx) => {
           const anchor = ctx.workbook.getSelectedRange();
           const dest = anchor.getResizedRange(clean.length - 1, (clean[0]?.length ?? 1) - 1);
-          dest.load?.("address,values");
+          dest.load?.("address,formulas");
           await ctx.sync();
-          const got = (dest as unknown as { values: Array<Array<unknown>> }).values?.[0]?.[0];
+          const got = (dest as unknown as { formulas: Array<Array<unknown>> }).formulas?.[0]?.[0];
           verified = ` (read-back: ${JSON.stringify(got)})`;
         });
       } catch {
