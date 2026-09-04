@@ -103,11 +103,38 @@ for **≥ 4 consecutive months**; everything else (one-off restaurants, transpor
 flights, hotels, first-time and foreign/US vendors) gets none, regardless of
 conventional taxability.
 
-## Install in Excel (Office Add-in)
+## Install & run in Excel
 
-Add-ins are served over HTTPS in Office, so sideload normally means `npx office-addin-dev-certs install` + serve over `https://localhost:3000`. The `manifest.xml`
-points at that URL. Icons (`assets/`) and the HTTPS dev-certs step are the open
-items before this runs in the host.
+Everything needed is wired up. On this machine the system CA already trusts the
+localhost cert and the server runs on `https://localhost:3000`.
+
+```sh
+npm run build     # typecheck + icons + bundle dist/
+npm run serve     # HTTPS server on https://localhost:3000 with the localhost cert
+```
+
+Then sideload the add-in into Excel:
+
+1. **Insert → Add-ins → My Add-ins → Manage: My Add-ins → Upload My Add-in**
+2. Browse to the `manifest.xml` in the repo root → select it
+3. Excel fetches `https://localhost:3000/taskpane.html` (trusted), loads the
+   taskpane, and mounts it on `Office.onReady` → you get the **AI Closer** pane.
+
+> The add-in also runs as a standalone web demo in any browser at
+> `https://localhost:3000/taskpane.html` (no Office required) — Office.js is
+> loaded from the CDN but the dual-mode bootstrap skips `Office.onReady` when
+> no host is present.
+
+**First-time cert setup** (already done here, but for a fresh clone):
+
+```sh
+npm i -D office-addin-dev-certs
+npx office-addin-dev-certs install   # generates + trusts localhost cert
+npm run serve                        # reuses ~/.office-addin-dev-certs/
+```
+
+> Note: `office-addin-dev-certs` needs to write the CA cert into the system
+> trust store (admin elevation on Windows) the first time.
 
 ## Models & cost
 
