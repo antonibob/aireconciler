@@ -170,3 +170,56 @@ export async function chatCompletion(
   };
   return chat(body, cfg);
 }
+
+/** A row of cell values produced by the model for sheet output. */
+export type ModelRow = Array<string | number>;
+
+/**
+ * Structured multi-cell completion. The model must reply with a JSON array of
+ * rows (e.g. [["=SUM(A2:A10)", 5, "ok"], ...]) which we parse for sheet output.
+ * Falls back to a normal text reply (parsed=null) if the model didn't emit JSON.
+ */
+export async function chatCompletionArray(
+  messages: ChatMessage[],
+  cfg: ModelConfig,
+): Promise<{ content: string; rows: ModelRow[] | null; ok: boolean; cost?: number }> {
+  const body = {
+    model: cfg.model ?? DEFAULT_MODEL,
+    messages: [
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+      {
+        role: "user",
+        content:
+          "Return ONLY a JSON array of flat arrays — one per output row, each value a string or number. " +
+          "No markdown, no prose, no code fences. Example: [[\"=SUM(A2:A10)\", 55], [\"=SUM(B2:B10)\", 120]]. " +
+          "If you can't produce tabular output, reply with the text answer starting with JSON_MISS and nothing else.",
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 4096,
+  };
+  const res = await chat(body, cfg);
+  if (!res.ok) return { content: res.content, rows: null, ok: false, cost: res.cost };
+  const trimmed = res.content.trim();
+  const isJson = trimmed.startsWith("[") || (trimmed.includes("[") && trimmed.includes("]"));
+  if (!isJson || /^JSON_MISS/i.test(trimmed)) {
+    return { content: res.content, rows: null, ok: true, cost: res.cost };
+  }
+  try {
+    const start = trimmed.indexOf("[");
+    const end = trimmed.lastIndexOf("]") + 1;
+    const parsed = JSON.parse(trimmed.slice(start, end));
+    if (Array.isArray(parsed)) {
+      const rows = parsed.map((r: unknown) => {
+        if (Array.isArray(r)) {
+          return r.map((v: unknown) => (typeof v === "number" ? v : String(v)));
+        }
+        return [] as ModelRow; // drop malformed rows rather than writing "null"
+      });
+      return { content: res.content, rows, ok: true, cost: res.cost };
+    }
+  } catch {
+    /* not parseable as JSON array — fall through to text */
+  }
+  return { content: res.content, rows: null, ok: true, cost: res.cost };
+}

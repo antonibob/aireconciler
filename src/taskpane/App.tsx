@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { chatCompletion, ChatMessage } from "../model/index.js";
+import { chatCompletion, chatCompletionArray, ChatMessage, ModelRow } from "../model/index.js";
 import { RangeInfo } from "./index.js";
 import "./App.css";
 
@@ -77,6 +77,8 @@ interface UIMessage {
   role: "user" | "assistant";
   text: string;
   error?: boolean;
+  /** Parsed multi-cell rows the model produced, if any. */
+  rows?: ModelRow[] | null;
 }
 
 export function App() {
@@ -97,6 +99,10 @@ export function App() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy]);
+
+  /** Does the prompt ask to produce values to apply into the sheet? */
+  const wantsApply = (t: string) =>
+    /\b(fill|apply|compute|calculate|extract|list|every row|per row|column of|populate|generate a column|calculate.*for each)\b/i.test(t);
 
   const send = useCallback(
     async (text: string) => {
@@ -127,20 +133,39 @@ export function App() {
         const prior = messages
           .filter((m) => m.role === "user" || (m.role === "assistant" && !m.error))
           .map((m) => ({ role: m.role, content: m.text }));
-        const history: ChatMessage[] = [
+        const baseHistory: ChatMessage[] = [
           sysMsg,
           ...(ctxMsg ? [ctxMsg] : []),
           ...prior.map((m) => ({ role: m.role, content: m.content })),
           { role: "user", content: text },
         ];
-        const res = await chatCompletion(history, {
-          apiKey: config.apiKey,
-          model: config.model,
-        });
-        setMessages((m) => [
-          ...m,
-          { role: "assistant", text: res.content, error: !res.ok },
-        ]);
+
+        if (wantsApply(text)) {
+          const res = await chatCompletionArray(baseHistory, {
+            apiKey: config.apiKey,
+            model: config.model,
+          });
+          // Prepend a hint that a ready-to-apply table was generated (if rows).
+          const shown = res.rows
+            ? `Ready to apply ${res.rows.length} row(s) × ${res.rows[0]?.length ?? 1} col(s) to your selection. Select the top-left cell, then hit "Apply to selection".\n\nPreview:\n${res.rows
+                .slice(0, 5)
+                .map((r) => "  " + r.join(" | "))
+                .join("\n")}`
+            : res.content;
+          setMessages((m) => [
+            ...m,
+            { role: "assistant", text: shown, error: !res.ok, rows: res.rows },
+          ]);
+        } else {
+          const res = await chatCompletion(baseHistory, {
+            apiKey: config.apiKey,
+            model: config.model,
+          });
+          setMessages((m) => [
+            ...m,
+            { role: "assistant", text: res.content, error: !res.ok },
+          ]);
+        }
       } catch (err) {
         setMessages((m) => [
           ...m,
@@ -164,8 +189,42 @@ export function App() {
     setSettingsOpen(false);
   };
 
-  /** Write the last assistant reply (a formula or value) into the active cell. */
+  /** Apply the last assistant's multi-cell rows into the selected top-left cell. */
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
+  const applyToSelection = async () => {
+    const rows = lastAssistant?.rows;
+    if (!rows || rows.length === 0) return;
+    const exl = window.Excel;
+    if (!exl) {
+      setMessages((m) => [...m, { role: "assistant", text: "No Excel host (web demo) — can't apply to the sheet.", error: true }]);
+      return;
+    }
+    try {
+      // Drop trailing empty rows.
+      const clean = rows.filter((r) => r.some((v) => v !== "" && v !== null && v !== undefined));
+      await (window.Excel as unknown as {
+        run(cb: (ctx: { workbook: { getSelectedRange(): RangeInfo & { getResizedRange(dr: number, dc: number): RangeInfo } }; sync(): Promise<unknown> }) => Promise<void> | void): Promise<unknown>;
+      }).run(async (ctx) => {
+        const anchor = ctx.workbook.getSelectedRange();
+        const h = clean.length;
+        const w = clean[0]?.length ?? 1;
+        const dest = anchor.getResizedRange(h - 1, w - 1);
+        dest.values = clean.map((r) => {
+          // pad/truncate to width
+          const row = new Array(w).fill(null);
+          r.forEach((v, i) => {
+            if (i < w) row[i] = v;
+          });
+          return row;
+        });
+        await ctx.sync();
+      });
+      setMessages((m) => [...m, { role: "assistant", text: `Applied ${clean.length} row(s) starting at the selected cell.`, }]);
+    } catch (err) {
+      setMessages((m) => [...m, { role: "assistant", text: `Couldn't apply: ${err instanceof Error ? err.message : String(err)}`, error: true }]);
+    }
+  };
+
   const writeToActiveCell = async () => {
     if (!lastAssistant) return;
     const exl = window.Excel;
@@ -179,7 +238,7 @@ export function App() {
     try {
       // Strip backtick fences; keep a leading "=" so a formula lands cleanly.
       const write = lastAssistant.text.replace(/```/g, "").trim();
-      await (window.Excel as {
+      await (window.Excel as unknown as {
         run(cb: (ctx: { workbook: { getSelectedRange(): RangeInfo }; sync(): Promise<unknown> }) => Promise<void> | void): Promise<unknown>;
       }).run(async (ctx) => {
         // Write into the SELECTED range (top-left cell), so the user controls
@@ -281,7 +340,12 @@ export function App() {
             Add your API key to start
           </button>
         )}
-        {lastAssistant && (
+        {lastAssistant && lastAssistant.rows && lastAssistant.rows.length > 0 && (
+          <button className="btn apply-btn" onClick={applyToSelection} disabled={busy}>
+            ↧ Apply ({lastAssistant.rows.length} rows) to selection
+          </button>
+        )}
+        {lastAssistant && !lastAssistant.rows?.length && (
           <button className="btn insert-btn" onClick={writeToActiveCell} disabled={busy}>
             ↧ Insert to cell
           </button>
