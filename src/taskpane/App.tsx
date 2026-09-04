@@ -105,6 +105,10 @@ export function App() {
   const wantsApply = (t: string) =>
     /\b(fill|apply|compute|calculate|extract|list|every row|per row|column of|populate|generate a column|calculate.*for each)\b/i.test(t);
 
+  /** Does the prompt ask to write/set/place a value into the sheet? */
+  const wantsWrite = (t: string) =>
+    /\b(put|set|write|place|type|enter|insert|fill in)\b.*\b(cell|selected|range|this|there|sheet)\b|\b(put|write)\b.*\b(number|value|\d)\b/i.test(t);
+
   const send = useCallback(
     async (text: string) => {
       if (!text.trim() || busy) return;
@@ -141,18 +145,20 @@ export function App() {
           { role: "user", content: text },
         ];
 
-        if (wantsApply(text)) {
+        if (wantsApply(text) || wantsWrite(text)) {
           const res = await chatCompletionArray(baseHistory, {
             apiKey: config.apiKey,
             model: config.model,
           });
-          const shown = res.rows
-            ? `Ready: ${res.rows.length} row(s) × ${res.rows[0]?.length ?? 1} col(s).\n\nPreview:\n${res.rows.slice(0, 5).map((r) => "  " + r.join(" | ")).join("\n")}`
-            : res.content;
-          setMessages((m) => [...m, { role: "assistant", text: shown, error: !res.ok, rows: res.rows ?? undefined }]);
-          // AUTO-APPLY: write straight to the selected range, with undo.
+          // If the model produced rows (a value or a table), write them directly.
           if (res.rows && res.rows.length > 0) {
+            const shown = wantsWrite(text)
+              ? `Writing to the selected cell…`
+              : `Ready: ${res.rows.length} row(s) × ${res.rows[0]?.length ?? 1} col(s).\n\nPreview:\n${res.rows.slice(0, 5).map((r) => "  " + r.join(" | ")).join("\n")}`;
+            setMessages((m) => [...m, { role: "assistant", text: shown, error: !res.ok, rows: res.rows ?? undefined }]);
             await autoApply(res.rows);
+          } else {
+            setMessages((m) => [...m, { role: "assistant", text: res.content, error: !res.ok, rows: res.rows ?? undefined }]);
           }
         } else {
           const res = await chatCompletion(baseHistory, {
@@ -221,7 +227,23 @@ export function App() {
         });
         await ctx.sync();
       });
-      setMessages((m) => [...m, { role: "assistant", text: `✓ ${note}`, }]);
+      // Verify by reading back what was written (never report a write that didn't land).
+      let verified = "";
+      try {
+        await (window.Excel as unknown as {
+          run(cb: (ctx: { workbook: { getSelectedRange(): RangeInfo & { getResizedRange(dr: number, dc: number): RangeInfo } }; sync(): Promise<unknown> }) => Promise<void> | void): Promise<unknown>;
+        }).run(async (ctx) => {
+          const anchor = ctx.workbook.getSelectedRange();
+          const dest = anchor.getResizedRange(clean.length - 1, (clean[0]?.length ?? 1) - 1);
+          dest.load?.("address,values");
+          await ctx.sync();
+          const got = (dest as unknown as { values: Array<Array<unknown>> }).values?.[0]?.[0];
+          verified = ` (read-back: ${JSON.stringify(got)})`;
+        });
+      } catch {
+        verified = "";
+      }
+      setMessages((m) => [...m, { role: "assistant", text: `✓ ${note}${verified}`, }]);
       return true;
     } catch (err) {
       setMessages((m) => [...m, { role: "assistant", text: `Couldn't write: ${err instanceof Error ? err.message : String(err)}`, error: true }]);
