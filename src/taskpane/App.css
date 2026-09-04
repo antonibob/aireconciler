@@ -228,6 +228,14 @@ body {
   word-wrap: break-word;
   font-family: inherit;
 }
+.data-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
 .bubble.typing {
   color: var(--muted);
 }
@@ -238,6 +246,13 @@ body {
   align-items: flex-end;
   gap: 8px;
   padding: 10px 2px 2px;
+}
+.composer-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--faint);
+  padding: 6px 0 4px;
+  letter-spacing: 0.01em;
 }
 .chat-input {
   flex: 1;

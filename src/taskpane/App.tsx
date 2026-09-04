@@ -149,11 +149,19 @@ export function App() {
         const prior = messages
           .filter((m) => m.role === "user" || (m.role === "assistant" && !m.error))
           .map((m) => ({ role: m.role, content: m.text }));
+        // Detect a pasted table (CSV/TSV) so the model treats it as DATA,
+        // not prose. Multi-line with a tab/comma/pipe delimiter.
+        const looksTabular =
+          text.includes("\n") &&
+          /[,\t|]/.test(text.split("\n").slice(0, 3).join(" "));
+        const userContent = looksTabular
+          ? `[PASTED DATA — treat this as a table, not prose]\n${text}`
+          : text;
         const baseHistory: ChatMessage[] = [
           sysMsg,
           ...(ctxMsg ? [ctxMsg] : []),
           ...prior.map((m) => ({ role: m.role, content: m.content })),
-          { role: "user", content: text },
+          { role: "user", content: userContent },
         ];
 
         if (wantsApply(text) || wantsWrite(text)) {
@@ -370,7 +378,12 @@ export function App() {
       <div className="chat-scroll" ref={scrollRef}>
         {messages.map((m, i) => (
           <div key={i} className={`bubble ${m.role}${m.error ? " error" : ""}`}>
-            <pre className="bubble-text">{m.text}</pre>
+            {m.role === "user" && m.text.startsWith("[PASTED DATA") && (
+              <div className="data-badge">📋 pasted table</div>
+            )}
+            <pre className="bubble-text">
+              {m.text.replace(/\[PASTED DATA[^\n]*\n/, "")}
+            </pre>
           </div>
         ))}
         {busy && (
@@ -402,6 +415,9 @@ export function App() {
         <button className="send-btn" onClick={() => send(input)} disabled={busy || !config.apiKey}>
           ➤
         </button>
+      </div>
+      <div className="composer-hint">
+        paste a table to analyze · or select cells in Excel for context
       </div>
     </div>
   );
