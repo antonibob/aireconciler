@@ -65,6 +65,16 @@
   border-radius: 8px;
   font-size: 13px;
 }
+.model-select {
+  padding: 8px 10px;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+}
+.model-custom {
+  margin-top: 6px;
+}
 .settings-actions {
   display: flex;
   align-items: center;

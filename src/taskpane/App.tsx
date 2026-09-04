@@ -8,11 +8,13 @@ const STORAGE_KEY = "ai-closer-config";
 const MODEL_PRESETS = [
   "deepseek/deepseek-chat",
   "deepseek/deepseek-v3-0724",
-  "anthropic/claude-3.5-haiku",
+  "deepseek/deepseek-reasoner",
+  "anthropic/claude-3.5-sonnet",
   "openai/gpt-4o-mini",
   "google/gemini-2.0-flash",
   "meta-llama/llama-3.3-70b-instruct",
   "mistralai/mistral-small-latest",
+  "qwen/qwen-2.5-72b-instruct",
 ];
 
 interface Config {
@@ -141,17 +143,26 @@ export function App() {
           </label>
           <label className="field">
             <span>Model</span>
-            <input
-              list="model-presets"
-              value={modelDraft}
+            <select
+              value={MODEL_PRESETS.includes(modelDraft) ? modelDraft : "__custom__"}
               onChange={(e) => setModelDraft(e.target.value)}
-              placeholder="deepseek/deepseek-chat"
-            />
-            <datalist id="model-presets">
+              className="model-select"
+            >
               {MODEL_PRESETS.map((m) => (
-                <option key={m} value={m} />
+                <option key={m} value={m}>
+                  {m}
+                </option>
               ))}
-            </datalist>
+              <option value="__custom__">Custom model…</option>
+            </select>
+            {!MODEL_PRESETS.includes(modelDraft) && (
+              <input
+                value={modelDraft}
+                onChange={(e) => setModelDraft(e.target.value)}
+                placeholder="provider/model-id"
+                className="model-custom"
+              />
+            )}
           </label>
           <div className="settings-actions">
             <button className="btn" onClick={applySettings}>
