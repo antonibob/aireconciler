@@ -19,21 +19,29 @@ function mount() {
  *  - Inside Office: wait for Office.onReady (Excel globals available).
  *  - Plain browser demo: no Office.js loaded, render immediately.
  */
+// Minimal structural Office/Excel context used at the taskpane boundary.
 declare global {
   interface Window {
     Office?: { onReady(cb: (info: unknown) => void): void };
     Excel?: {
-      run(context: unknown, cb: (ctx: ExcelContext) => Promise<unknown>): Promise<unknown>;
+      run(
+        batchCallback: (ctx: {
+          workbook: {
+            getSelectedRange(): RangeInfo;
+            getActiveWorksheet(): Record<string, unknown>;
+          };
+          sync(): Promise<unknown>;
+        }) => Promise<void> | void,
+      ): Promise<unknown>;
     };
   }
 }
 
-// Minimal structural Excel context used at runtime.
-export interface ExcelContext {
-  workbook: {
-    getActiveCell(): { address: string; values: Array<Array<unknown>>; values2?: never };
-  };
-  sync(): Promise<void>;
+export interface RangeInfo {
+  address: string;
+  values: Array<Array<unknown>>;
+  rowCount?: number;
+  load?(properties: string): void;
 }
 
 if (window.Office?.onReady) {

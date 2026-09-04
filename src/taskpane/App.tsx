@@ -1,6 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { chatCompletion, ChatMessage } from "../model/index.js";
+import { RangeInfo } from "./index.js";
 import "./App.css";
+
+/** Pull the selected range + a header/data sample so the model can write
+ * correct references. Returns null when not in an Excel host. */
+export async function gatherSheetContext(): Promise<{
+  selectionAddress: string;
+  selection: Array<Array<unknown>>;
+  usedSample: string;
+} | null> {
+  const exl = window.Excel;
+  if (!exl) return null;
+  let selAddr = "";
+  let sel: Array<Array<unknown>> = [];
+  try {
+    await exl.run(async (ctx) => {
+      const range = ctx.workbook.getSelectedRange();
+      range.load?.("address,values");
+      await ctx.sync();
+      selAddr = (range as unknown as RangeInfo).address || "";
+      sel = (range as unknown as RangeInfo).values || [];
+    });
+  } catch {
+    /* selection read failed; continue without it */
+  }
+  // Serialize the selection compactly for the prompt.
+  const sample = sel.slice(0, 12).map((r) => r.join(" | "));
+  return {
+    selectionAddress: selAddr,
+    selection: sel,
+    usedSample: sample.length ? sample.join("\n") : "(empty selection)",
+  };
+}
 
 const STORAGE_KEY = "ai-closer-config";
 
@@ -77,11 +109,29 @@ export function App() {
       setMessages((m) => [...m, { role: "user", text }]);
       setBusy(true);
       try {
+        const sheetCtx = await gatherSheetContext();
+        const sysMsg: ChatMessage = {
+          role: "system",
+          content:
+            "You are a concise, helpful assistant inside an Excel add-in. Plain text, short. " +
+            "If the user selects a cell/range, a sheet context is provided as [SHEET CONTEXT]. " +
+            "Write correct cell references. If asked to build a formula, output JUST the formula " +
+            "starting with =, no prose, so it can be inserted into the active cell.",
+        };
+        const ctxMsg: ChatMessage | null = sheetCtx
+          ? {
+              role: "user",
+              content: `[SHEET CONTEXT] Active selection: ${sheetCtx.selectionAddress}\nSelected data:\n${sheetCtx.usedSample}`,
+            }
+          : null;
+        const prior = messages
+          .filter((m) => m.role === "user" || (m.role === "assistant" && !m.error))
+          .map((m) => ({ role: m.role, content: m.text }));
         const history: ChatMessage[] = [
-          { role: "system", content: "You are a concise, helpful assistant inside an Excel add-in. Plain text, short." },
-          ...messages
-            .filter((m) => m.role === "user" || (m.role === "assistant" && !m.error))
-            .map((m) => ({ role: m.role, content: m.text })),
+          sysMsg,
+          ...(ctxMsg ? [ctxMsg] : []),
+          ...prior.map((m) => ({ role: m.role, content: m.content })),
+          { role: "user", content: text },
         ];
         const res = await chatCompletion(history, {
           apiKey: config.apiKey,
@@ -127,18 +177,20 @@ export function App() {
       return;
     }
     try {
-      // Strip backtick fences and leading "=" so a formula lands cleanly.
-      let val = lastAssistant.text.replace(/```/g, "").trim();
-      if (val.startsWith("=")) val = val; // formulas keep their "="
-      const write = val;
-      await exl.run({}, async (ctx) => {
-        const cell = ctx.workbook.getActiveCell();
-        cell.values = [[write]];
+      // Strip backtick fences; keep a leading "=" so a formula lands cleanly.
+      const write = lastAssistant.text.replace(/```/g, "").trim();
+      await (window.Excel as {
+        run(cb: (ctx: { workbook: { getSelectedRange(): RangeInfo }; sync(): Promise<unknown> }) => Promise<void> | void): Promise<unknown>;
+      }).run(async (ctx) => {
+        // Write into the SELECTED range (top-left cell), so the user controls
+        // where output lands by selecting a cell first.
+        const range = ctx.workbook.getSelectedRange();
+        range.values = [[write]];
         await ctx.sync();
       });
       setMessages((m) => [
         ...m,
-        { role: "assistant", text: `Wrote "${write.slice(0, 60)}" to ${"the active cell"}.`, },
+        { role: "assistant", text: `Wrote "${write.slice(0, 60)}" to the selected cell.`, },
       ]);
     } catch (err) {
       setMessages((m) => [

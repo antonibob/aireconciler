@@ -93,3 +93,13 @@ export function writeArrayToRange(
 ): void {
   sheet.getRange(address).values = values;
 }
+
+/** Shape of the context the taskpane pulls from the live Excel host. */
+export interface SheetContext {
+  selectionAddress: string;
+  selection: Array<Array<unknown>>;
+  selectedTable: string | null;
+  usedRangeAddress: string | null;
+  /** First ~startRows of the used range, so the model sees headers/data. */
+  usedSample: Array<Array<unknown>>;
+}
