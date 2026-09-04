@@ -145,3 +145,28 @@ async function chat(
     return { content: `Network error: ${err instanceof Error ? err.message : String(err)}`, ok: false };
   }
 }
+
+/** ChatMessage used by the general chat pane. */
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+const CHAT_SYSTEM = `You are a helpful, concise assistant embedded in an Excel taskpane. You can see the user's spreadsheet context and can answer questions, write formulas, and help with accounting. Be direct, use plain text with light markdown, and don't over-apologize. If the user references a selected range, ask for its contents or note you can't see it directly.`;
+
+/**
+ * General-purpose chat completion used by the Claude-like taskpane chat.
+ * Sends the full message history so the model keeps context within a session.
+ */
+export async function chatCompletion(
+  messages: ChatMessage[],
+  cfg: ModelConfig,
+): Promise<ChatResult> {
+  const body = {
+    model: cfg.model ?? DEFAULT_MODEL,
+    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    temperature: 0.4,
+    max_tokens: 2048,
+  };
+  return chat(body, cfg);
+}
