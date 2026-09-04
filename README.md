@@ -113,12 +113,25 @@ npm run build     # typecheck + icons + bundle dist/
 npm run serve     # HTTPS server on https://localhost:3000 with the localhost cert
 ```
 
-Then sideload the add-in into Excel:
+Then sideload the add-in into Excel. The shared-folder catalog is the most
+reliable path (works regardless of whether the newer "Apps" store shows an
+Upload button in your build):
 
-1. **Insert → Add-ins → My Add-ins → Manage: My Add-ins → Upload My Add-in**
-2. Browse to the `manifest.xml` in the repo root → select it
-3. Excel fetches `https://localhost:3000/taskpane.html` (trusted), loads the
-   taskpane, and mounts it on `Office.onReady` → you get the **AI Closer** pane.
+```sh
+# one-time: point Excel at a folder that lists your add-in manifests
+scripts/setup-shared-folder.bat   # or run the reg add it performs
+mkdir -p manifests && cp manifest.xml manifests/   # folder already has it
+```
+
+Then in Excel:
+1. **File → Options → Trust Center → Trust Center Settings → Trusted Add-in Catalogs**
+2. Under "Categories/Trusted catalogs", check **Catalog URL** that points to the
+   `manifests` folder, and enable **"Show in Menu"**
+3. Restart Excel → **Home → Add-ins → My Add-ins** → the **AI Closer** taskpane
+   is listed → click it.
+
+The add-in fetches `https://localhost:3000/taskpane.html` (trusted cert) and
+mounts the taskpane on `Office.onReady`.
 
 > The add-in also runs as a standalone web demo in any browser at
 > `https://localhost:3000/taskpane.html` (no Office required) — Office.js is
