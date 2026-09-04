@@ -307,6 +307,11 @@ body {
   color: #241a40;
   box-shadow: 0 4px 14px var(--accent-glow);
 }
+.undo-btn {
+  background: #f59e0b;
+  color: #241402;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+}
 .btn:disabled {
   opacity: 0.5;
   cursor: default;

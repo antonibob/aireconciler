@@ -94,6 +94,7 @@ export function App() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [undo, setUndo] = useState<{ address: string; values: Array<Array<unknown>> } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -145,26 +146,25 @@ export function App() {
             apiKey: config.apiKey,
             model: config.model,
           });
-          // Prepend a hint that a ready-to-apply table was generated (if rows).
           const shown = res.rows
-            ? `Ready to apply ${res.rows.length} row(s) × ${res.rows[0]?.length ?? 1} col(s) to your selection. Select the top-left cell, then hit "Apply to selection".\n\nPreview:\n${res.rows
-                .slice(0, 5)
-                .map((r) => "  " + r.join(" | "))
-                .join("\n")}`
+            ? `Ready: ${res.rows.length} row(s) × ${res.rows[0]?.length ?? 1} col(s).\n\nPreview:\n${res.rows.slice(0, 5).map((r) => "  " + r.join(" | ")).join("\n")}`
             : res.content;
-          setMessages((m) => [
-            ...m,
-            { role: "assistant", text: shown, error: !res.ok, rows: res.rows },
-          ]);
+          setMessages((m) => [...m, { role: "assistant", text: shown, error: !res.ok, rows: res.rows ?? undefined }]);
+          // AUTO-APPLY: write straight to the selected range, with undo.
+          if (res.rows && res.rows.length > 0) {
+            await autoApply(res.rows);
+          }
         } else {
           const res = await chatCompletion(baseHistory, {
             apiKey: config.apiKey,
             model: config.model,
           });
-          setMessages((m) => [
-            ...m,
-            { role: "assistant", text: res.content, error: !res.ok },
-          ]);
+          setMessages((m) => [...m, { role: "assistant", text: res.content, error: !res.ok, }]);
+          // If it produced a bare formula (starts with =), write it directly too.
+          const trimmed = res.content.replace(/```/g, "").trim();
+          if (window.Excel && trimmed.startsWith("=")) {
+            await autoApply(undefined, trimmed);
+          }
         }
       } catch (err) {
         setMessages((m) => [
@@ -189,19 +189,52 @@ export function App() {
     setSettingsOpen(false);
   };
 
-  /** Apply the last assistant's multi-cell rows into the selected top-left cell. */
-  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && !m.error);
-  const applyToSelection = async () => {
-    const rows = lastAssistant?.rows;
-    if (!rows || rows.length === 0) return;
-    const exl = window.Excel;
-    if (!exl) {
-      setMessages((m) => [...m, { role: "assistant", text: "No Excel host (web demo) — can't apply to the sheet.", error: true }]);
-      return;
-    }
+  /** Snapshot timing helper — run a write with undo capture around it. */
+  const capturePrior = async (
+    run: (ctx: { workbook: unknown; sync(): Promise<unknown>; [k: string]: unknown }) => Promise<void>,
+  ): Promise<{ address: string; values: Array<Array<unknown>> } | null> => {
+    let snap: { address: string; values: Array<Array<unknown>> } | null = null;
     try {
-      // Drop trailing empty rows.
-      const clean = rows.filter((r) => r.some((v) => v !== "" && v !== null && v !== undefined));
+      await (window.Excel as unknown as {
+        run(cb: (ctx: {
+          workbook: { getSelectedRange(): RangeInfo & { getResizedRange(dr: number, dc: number): RangeInfo } & { load?(p: string): void } & { address: string } };
+          sync(): Promise<unknown>;
+        }) => Promise<void> | void): Promise<unknown>;
+      }).run(async (ctx) => {
+        const anchor = ctx.workbook.getSelectedRange();
+        const h = 1;
+        const w = 1;
+        const dest = anchor.getResizedRange(h - 1, w - 1);
+        dest.load?.("values");
+        await ctx.sync();
+        snap = {
+          address: dest.address,
+          values: (dest as unknown as { values: Array<Array<unknown>> }).values,
+        };
+        await run(ctx as never);
+      });
+    } catch (err) {
+      return null;
+    }
+    return snap;
+  };
+
+  /** Write a rect (rows) into the selected range, snapshotting prior cells for undo. Returns true on success, false if no Excel host. */
+  const writeRectToSelection = async (rows: Array<Array<string | number>>, note: string): Promise<boolean> => {
+    if (!window.Excel) {
+      setMessages((m) => [...m, { role: "assistant", text: "I'm not inside an Excel host (running as a web demo), so I can't write to the sheet.", error: true }]);
+      return false;
+    }
+    const clean = rows.filter((r) => r.some((v) => v !== "" && v !== null && v !== undefined));
+    if (clean.length === 0) return false;
+    try {
+      const stamp = await capturePrior(async (ctx) => {
+        (ctx as unknown as {
+          workbook: { getSelectedRange(): RangeInfo & { getResizedRange(dr: number, dc: number): RangeInfo } };
+          sync(): Promise<unknown>;
+        }).workbook.getSelectedRange();
+      });
+      // Actually write now.
       await (window.Excel as unknown as {
         run(cb: (ctx: { workbook: { getSelectedRange(): RangeInfo & { getResizedRange(dr: number, dc: number): RangeInfo } }; sync(): Promise<unknown> }) => Promise<void> | void): Promise<unknown>;
       }).run(async (ctx) => {
@@ -209,8 +242,12 @@ export function App() {
         const h = clean.length;
         const w = clean[0]?.length ?? 1;
         const dest = anchor.getResizedRange(h - 1, w - 1);
+        // Snapshot prior for undo right before overwrite.
+        dest.load?.("values");
+        await ctx.sync();
+        const prior = (dest as unknown as { values: Array<Array<unknown>> }).values;
+        setUndo({ address: dest.address ?? anchor.address ?? "(selected)", values: prior });
         dest.values = clean.map((r) => {
-          // pad/truncate to width
           const row = new Array(w).fill(null);
           r.forEach((v, i) => {
             if (i < w) row[i] = v;
@@ -219,43 +256,40 @@ export function App() {
         });
         await ctx.sync();
       });
-      setMessages((m) => [...m, { role: "assistant", text: `Applied ${clean.length} row(s) starting at the selected cell.`, }]);
+      setMessages((m) => [...m, { role: "assistant", text: `✓ ${note}`, }]);
+      void stamp;
+      return true;
     } catch (err) {
-      setMessages((m) => [...m, { role: "assistant", text: `Couldn't apply: ${err instanceof Error ? err.message : String(err)}`, error: true }]);
+      setMessages((m) => [...m, { role: "assistant", text: `Couldn't write: ${err instanceof Error ? err.message : String(err)}`, error: true }]);
+      return false;
     }
   };
 
-  const writeToActiveCell = async () => {
-    if (!lastAssistant) return;
-    const exl = window.Excel;
-    if (!exl) {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", text: "I'm not inside an Excel host (running as a web demo), so I can't write to a cell. Run this as an add-in to write formulas.", error: true },
-      ]);
-      return;
-    }
+  /** Let the user revert the last direct write. */
+  const undoLast = async () => {
+    if (!undo) return;
+    if (!window.Excel) return;
     try {
-      // Strip backtick fences; keep a leading "=" so a formula lands cleanly.
-      const write = lastAssistant.text.replace(/```/g, "").trim();
       await (window.Excel as unknown as {
-        run(cb: (ctx: { workbook: { getSelectedRange(): RangeInfo }; sync(): Promise<unknown> }) => Promise<void> | void): Promise<unknown>;
+        run(cb: (ctx: { workbook: { getRange(address: string): { values: unknown } }; sync(): Promise<unknown> }) => Promise<void> | void): Promise<unknown>;
       }).run(async (ctx) => {
-        // Write into the SELECTED range (top-left cell), so the user controls
-        // where output lands by selecting a cell first.
-        const range = ctx.workbook.getSelectedRange();
-        range.values = [[write]];
+        ctx.workbook.getRange(undo.address).values = undo.values;
         await ctx.sync();
       });
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", text: `Wrote "${write.slice(0, 60)}" to the selected cell.`, },
-      ]);
+      setUndo(null);
+      setMessages((m) => [...m, { role: "assistant", text: "↩ Reverted the last change.", }]);
     } catch (err) {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", text: `Couldn't write to the cell: ${err instanceof Error ? err.message : String(err)}`, error: true },
-      ]);
+      setMessages((m) => [...m, { role: "assistant", text: `Undo failed: ${err instanceof Error ? err.message : String(err)}`, error: true }]);
+    }
+  };
+
+  /** Apply the last assistant reply directly to the sheet (auto, no button). */
+  const autoApply = async (rows?: Array<Array<string | number>> | null, text?: string) => {
+    if (rows && rows.length > 0) {
+      await writeRectToSelection(rows, `Applied ${rows.length} row(s) to your selection.`);
+    } else if (text) {
+      const val = text.replace(/```/g, "").trim();
+      if (val) await writeRectToSelection([[val]], "Wrote to your selected cell.");
     }
   };
 
@@ -341,14 +375,9 @@ export function App() {
             Add your API key to start
           </button>
         )}
-        {lastAssistant && lastAssistant.rows && lastAssistant.rows.length > 0 && (
-          <button className="btn apply-btn" onClick={applyToSelection} disabled={busy}>
-            ↧ Apply ({lastAssistant.rows.length} rows) to selection
-          </button>
-        )}
-        {lastAssistant && !lastAssistant.rows?.length && (
-          <button className="btn insert-btn" onClick={writeToActiveCell} disabled={busy}>
-            ↧ Insert to cell
+        {undo && (
+          <button className="btn undo-btn" onClick={undoLast} disabled={busy} title="Revert the last change I made to your sheet">
+            ↩ Undo last change
           </button>
         )}
         <textarea
