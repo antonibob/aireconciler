@@ -270,6 +270,7 @@ export function App() {
     <div className="chat-app">
       <div className="chat-header">
         <span className="chat-title">AI Closer</span>
+        <sup className={`status-dot ${config.apiKey ? "on" : ""}`} title={config.apiKey ? "Connected" : "Add API key"} />
         <span className="chat-subtitle">{config.model}</span>
         <button className="icon-btn" onClick={() => setSettingsOpen((o) => !o)} title="Settings">
           ⚙
