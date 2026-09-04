@@ -120,6 +120,10 @@ export function App() {
   const wantsWrite = (t: string) =>
     /\b(put|set|write|place|type|enter|insert|fill in)\b.*\b(cell|selected|range|this|there|sheet)\b|\b(put|write)\b.*\b(number|value|\d)\b/i.test(t);
 
+  /** Does the prompt ask to turn a range into an Excel Table? */
+  const wantsTable = (t: string) =>
+    /\b(convert|make|create|turn|format)\b.*\b(table|as a table|into a table)\b/i.test(t);
+
   const send = useCallback(
     async (text: string) => {
       if (!text.trim() || busy) return;
@@ -164,7 +168,10 @@ export function App() {
           { role: "user", content: userContent },
         ];
 
-        if (wantsApply(text) || wantsWrite(text)) {
+        // Convert selection to an Excel Table — no model needed, do it.
+        if (wantsTable(text)) {
+          await convertTable();
+        } else if (wantsApply(text) || wantsWrite(text)) {
           const res = await chatCompletionArray(baseHistory, {
             apiKey: config.apiKey,
             model: config.model,
@@ -309,6 +316,26 @@ export function App() {
     } else if (text) {
       const val = text.replace(/```/g, "").trim();
       if (val) await writeRectToSelection([[val]], "Wrote to your selected cell.");
+    }
+  };
+
+  /** Turn the selected range into an Excel Table (with headers). */
+  const convertTable = async () => {
+    if (!window.Excel) {
+      setMessages((m) => [...m, { role: "assistant", text: "I'm not inside an Excel host (web demo) — can't create a table.", error: true }]);
+      return;
+    }
+    try {
+      await (window.Excel as unknown as {
+        run(cb: (ctx: { workbook: { getSelectedRange(): RangeInfo; tables: { add(range: unknown, hasHeaders: boolean): unknown } }; sync(): Promise<unknown> }) => Promise<void> | void): Promise<unknown>;
+      }).run(async (ctx) => {
+        const sel = ctx.workbook.getSelectedRange();
+        ctx.workbook.tables.add(sel, true); // true = first row is headers
+        await ctx.sync();
+      });
+      setMessages((m) => [...m, { role: "assistant", text: "✓ Converted the selected range to an Excel Table (row 1 = headers).", }]);
+    } catch (err) {
+      setMessages((m) => [...m, { role: "assistant", text: `Couldn't create table: ${err instanceof Error ? err.message : String(err)}`, error: true }]);
     }
   };
 
