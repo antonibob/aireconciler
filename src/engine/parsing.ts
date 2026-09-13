@@ -77,13 +77,20 @@ export function parseAmountColumn(
   values: Array<Array<string | number | null | undefined>>,
   colIndex: number,
 ): Array<number | null> {
-  return values.map((row) => parseAmount(row[colIndex]).ok ? parseAmount(row[colIndex]).cents : null);
+  return values.map((row) => {
+    const parsed = parseAmount(row[colIndex]);
+    return parsed.ok ? parsed.cents : null;
+  });
 }
 
 /**
  * Detect the header row of a worksheet — the last row before the data that is
  * mostly text and has unique-ish labels. Cheap heuristic: scan first N rows;
  * the header is the first row where most cells are non-numeric strings.
+ *
+ * Returns -1 when no row looks like a header. Callers must distinguish that
+ * from row 0: skipping "the header" on a headerless range silently eats the
+ * first transaction.
  */
 export function detectHeaderRow(
   values: Array<Array<string | number | null | undefined>>,
@@ -99,5 +106,5 @@ export function detectHeaderRow(
     // A header row has at least 2 populated cells (real column names), mostly text.
     if (nonEmpty >= 2 && textCells.length / nonEmpty > 0.6) return r;
   }
-  return 0; // default: row 1 is header
+  return -1; // no header found — the range is all data
 }

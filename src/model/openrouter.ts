@@ -1,31 +1,18 @@
-/** OpenRouter model layer — the "cheap, BYO-key" draft assistant.
+/** GL coding suggestions — the one place the model is asked for judgment.
  *
  * Keep the model surface NARROW. The engine does all deterministic math and
  * enforcement (GST gate, check cross-foot, variance). The model is only asked
  * for judgment that lives outside the rules — normalize an ambiguous vendor,
- * suggest a GL code, draft an audit note. Its answers are DRAFTS the accountant
- * confirms; the engine re-validates whatever comes back.
+ * suggest a GL code. Its answers are DRAFTS the accountant confirms; the engine
+ * re-validates whatever comes back.
+ *
+ * The general chat path lives in client.ts + the agent loop; it is not here.
  */
 
+import { chatWithTools, type ClientConfig } from "./client.js";
 import type { Transaction } from "../engine/index.js";
 
-export interface ModelConfig {
-  /** OpenRouter API key. Kept out of git; entered in the taskpane settings. */
-  apiKey: string;
-  /** Cheap model id. Defaults to a strong, low-cost coder. */
-  model?: string;
-  baseUrl?: string;
-}
-
-export const DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731";
-const DEFAULT_BASE = "https://openrouter.ai/api/v1";
-
-export interface ChatResult {
-  content: string;
-  ok: boolean;
-  /** OpenRouter usage cost in USD, when reported. */
-  cost?: number;
-}
+export const DEFAULT_MODEL = "anthropic/claude-3.5-sonnet";
 
 export interface GlSuggestion {
   transaction: Transaction;
@@ -37,189 +24,97 @@ export interface GlSuggestion {
 const SYSTEM = `You are a careful accounting assistant embedded in an Excel add-in.
 You produce DRAFT journal coding suggestions. You never post anything yourself.
 Follow these rules exactly:
-- Return ONLY valid JSON matching the requested shape. No markdown fences, no prose.
+- Return ONLY valid JSON. No markdown fences, no prose.
+- Shape: {"codes": [{"glCode": string|null, "confidence": "high"|"low", "reason": string}]}
+- One entry per input transaction, in the same order. Never reorder or omit.
 - For a vendor you cannot confidently code, return glCode null and confidence "low".
-- Never invent an amount or a GL account that is not part of a provided mapping.
+- Never invent a GL account that is not in the provided mapping.
 - Flag uncertainty explicitly in "reason". Do not silently balance.`;
 
-/** Ask OpenRouter for a GL code suggestion for a batch of uncoded rows. */
+/** Ask OpenRouter for GL code suggestions for a batch of uncoded rows. */
 export async function suggestGlCodes(
   rows: Transaction[],
   glAccounts: Array<{ code: string; label: string }>,
-  cfg: ModelConfig,
+  cfg: ClientConfig,
 ): Promise<GlSuggestion[]> {
-  const body = {
-    model: cfg.model ?? DEFAULT_MODEL,
-    messages: [
+  const unresolved = (reason: string) =>
+    rows.map((r) => ({ transaction: r, glCode: null, confidence: "low" as const, reason }));
+
+  if (rows.length === 0) return [];
+
+  const accounts = glAccounts.map((a) => `${a.code} ${a.label}`).join("\n");
+  const lines = rows
+    .map((r, i) => `${i}: ${r.date} | ${r.description} | ${(r.amountCents / 100).toFixed(2)} | ${r.last4}`)
+    .join("\n");
+
+  const turn = await chatWithTools(
+    [
       { role: "system", content: SYSTEM },
       {
         role: "user",
-        content: `Given these GL accounts:\n${glAccounts
-          .map((a) => `${a.code} ${a.label}`)
-          .join("\n")}\n\nCode each transaction. Return a JSON array with one object per input, in order: {"glCode": string|null, "confidence": "high"|"low", "reason": string}.\n\nTransactions:\n${rows
-          .map(
-            (r, i) =>
-              `${i}: ${r.date} | ${r.description} | ${(r.amountCents / 100).toFixed(2)} | ${r.last4}`,
-          )
-          .join("\n")}`,
+        content: `Available GL accounts:\n${accounts}\n\nCode each transaction below. Return ${rows.length} entries in "codes", in input order.\n\nTransactions:\n${lines}`,
       },
     ],
-    temperature: 0,
-    max_tokens: 1200,
-    response_format: { type: "json_object" },
-  };
+    [], // no tools: this is a single structured answer, not an agent turn
+    cfg,
+  );
 
-  const res = await chat(body, cfg);
-  if (!res.ok) {
-    // Fail loud: every row unresolved rather than guessing.
-    return rows.map((r) => ({
-      transaction: r,
-      glCode: null,
-      confidence: "low" as const,
-      reason: `Model call failed: ${res.content}`,
-    }));
-  }
+  // Fail loud: every row unresolved rather than guessing.
+  if (!turn.ok) return unresolved(`Model call failed: ${turn.error ?? "unknown error"}`);
 
-  try {
-    const parsed = JSON.parse(res.content).codes as Array<{
-      glCode: string | null;
-      confidence: "high" | "low";
-      reason: string;
-    }>;
-    return rows.map((r, i) => {
-      const c = parsed[i];
-      return {
-        transaction: r,
-        glCode: c?.glCode ?? null,
-        confidence: c?.confidence ?? "low",
-        reason: c?.reason ?? "No reason given.",
-      };
-    });
-  } catch {
-    return rows.map((r) => ({
-      transaction: r,
-      glCode: null,
-      confidence: "low" as const,
-      reason: `Could not parse model JSON: ${res.content.slice(0, 200)}`,
-    }));
-  }
-}
+  const parsed = parseGlResponse(turn.content, rows.length);
+  if (!parsed) return unresolved(`Could not parse model JSON: ${turn.content.slice(0, 200)}`);
 
-async function chat(
-  body: unknown,
-  cfg: ModelConfig,
-): Promise<ChatResult> {
-  if (!cfg.apiKey) {
-    return { content: "No OpenRouter API key configured in the taskpane settings.", ok: false };
-  }
-  try {
-    const base = cfg.baseUrl ?? DEFAULT_BASE;
-    const response = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${cfg.apiKey}`,
-        "HTTP-Referer": "https://github.com/antonio-clair/office-ai-closer",
-        "X-Title": "Office AI Closer",
-      },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      const err = await response.text();
-      return { content: `HTTP ${response.status}: ${err.slice(0, 300)}`, ok: false };
-    }
-    const data = await response.json();
-    const usage = data?.usage;
-    const cost =
-      usage &&
-      typeof usage?.prompt_cost === "number" &&
-      typeof usage?.completion_cost === "number"
-        ? usage.prompt_cost + usage.completion_cost
-        : undefined;
+  return rows.map((r, i) => {
+    const c = parsed[i];
     return {
-      content: (data?.choices?.[0]?.message?.content ?? "").trim(),
-      ok: true,
-      cost,
+      transaction: r,
+      glCode: c?.glCode ?? null,
+      confidence: c?.confidence === "high" ? "high" : "low",
+      reason: c?.reason ?? "Model returned no entry for this row.",
     };
-  } catch (err) {
-    return { content: `Network error: ${err instanceof Error ? err.message : String(err)}`, ok: false };
-  }
+  });
 }
 
-/** ChatMessage used by the general chat pane. */
-export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
+interface RawCode {
+  glCode: string | null;
+  confidence: "high" | "low";
+  reason: string;
 }
-
-const CHAT_SYSTEM = `You are a helpful, concise assistant embedded in an Excel taskpane. You can see the user's spreadsheet context and can answer questions, write formulas, and help with accounting. Be direct, use plain text with light markdown, and don't over-apologize. If the user references a selected range, ask for its contents or note you can't see it directly.`;
 
 /**
- * General-purpose chat completion used by the Claude-like taskpane chat.
- * Sends the full message history so the model keeps context within a session.
+ * Accept either {"codes": [...]} or a bare array — models drift between the two
+ * regardless of what the prompt says, and a stricter parser here would silently
+ * mark every row unresolved. Returns null when neither shape is present.
  */
-export async function chatCompletion(
-  messages: ChatMessage[],
-  cfg: ModelConfig,
-): Promise<ChatResult> {
-  const body = {
-    model: cfg.model ?? DEFAULT_MODEL,
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    temperature: 0.4,
-    max_tokens: 2048,
-  };
-  return chat(body, cfg);
-}
-
-/** A row of cell values produced by the model for sheet output. */
-export type ModelRow = Array<string | number>;
-
-/**
- * Structured multi-cell completion. The model must reply with a JSON array of
- * rows (e.g. [["=SUM(A2:A10)", 5, "ok"], ...]) which we parse for sheet output.
- * Falls back to a normal text reply (parsed=null) if the model didn't emit JSON.
- */
-export async function chatCompletionArray(
-  messages: ChatMessage[],
-  cfg: ModelConfig,
-): Promise<{ content: string; rows: ModelRow[] | null; ok: boolean; cost?: number }> {
-  const body = {
-    model: cfg.model ?? DEFAULT_MODEL,
-    messages: [
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-      {
-        role: "user",
-        content:
-          "Return ONLY a JSON array of flat arrays — one per output row, each value a string or number. " +
-          "No markdown, no prose, no code fences. Example: [[\"=SUM(A2:A10)\", 55], [\"=SUM(B2:B10)\", 120]]. " +
-          "If you can't produce tabular output, reply with the text answer starting with JSON_MISS and nothing else.",
-      },
-    ],
-    temperature: 0.2,
-    max_tokens: 4096,
-  };
-  const res = await chat(body, cfg);
-  if (!res.ok) return { content: res.content, rows: null, ok: false, cost: res.cost };
-  const trimmed = res.content.trim();
-  const isJson = trimmed.startsWith("[") || (trimmed.includes("[") && trimmed.includes("]"));
-  if (!isJson || /^JSON_MISS/i.test(trimmed)) {
-    return { content: res.content, rows: null, ok: true, cost: res.cost };
-  }
+export function parseGlResponse(content: string, expected: number): RawCode[] | null {
+  const text = content.trim().replace(/^```(?:json)?\s*|\s*```$/g, "");
+  let data: unknown;
   try {
-    const start = trimmed.indexOf("[");
-    const end = trimmed.lastIndexOf("]") + 1;
-    const parsed = JSON.parse(trimmed.slice(start, end));
-    if (Array.isArray(parsed)) {
-      const rows = parsed.map((r: unknown) => {
-        if (Array.isArray(r)) {
-          return r.map((v: unknown) => (typeof v === "number" ? v : String(v)));
-        }
-        return [] as ModelRow; // drop malformed rows rather than writing "null"
-      });
-      return { content: res.content, rows, ok: true, cost: res.cost };
-    }
+    data = JSON.parse(text);
   } catch {
-    /* not parseable as JSON array — fall through to text */
+    // Salvage the first JSON object or array embedded in prose.
+    const m = /[{[][\s\S]*[}\]]/.exec(text);
+    if (!m) return null;
+    try {
+      data = JSON.parse(m[0]);
+    } catch {
+      return null;
+    }
   }
-  return { content: res.content, rows: null, ok: true, cost: res.cost };
+  const arr = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { codes?: unknown })?.codes)
+      ? (data as { codes: unknown[] }).codes
+      : null;
+  if (!arr) return null;
+  // A short reply is padded by the caller's index lookup; a long one is clipped.
+  return arr.slice(0, expected).map((c): RawCode => {
+    const row = c as Partial<RawCode>;
+    return {
+      glCode: typeof row?.glCode === "string" ? row.glCode : null,
+      confidence: row?.confidence === "high" ? "high" : "low",
+      reason: typeof row?.reason === "string" ? row.reason : "No reason given.",
+    };
+  });
 }

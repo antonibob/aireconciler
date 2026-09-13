@@ -1,0 +1,231 @@
+/**
+ * The live Excel implementation of Host.
+ *
+ * Structural types again, deliberately: CI has no Office host, and the ambient
+ * @microsoft/office-js globals do not type-check without one. The real
+ * Excel.OfficeExtension objects satisfy these shapes at runtime.
+ *
+ * Two rules this file exists to enforce:
+ *   1. Every read is intersected with the used range. A user clicking a column
+ *      header selects 1,048,576 rows, and marshalling that across the Office.js
+ *      bridge hangs the task pane.
+ *   2. Writes go through `formulas` alone, never `values` and `formulas` in the
+ *      same sync. Assigning both applies the second over the whole rectangle,
+ *      blanking every cell the first one filled.
+ */
+
+import type { CellValue, Host, PendingWrite, RawSheetContext, ReadResult } from "./executor.js";
+
+interface Loadable {
+  load(props: string): void;
+}
+
+interface RangeLike extends Loadable {
+  address: string;
+  rowIndex: number;
+  columnIndex: number;
+  rowCount: number;
+  columnCount: number;
+  values: CellValue[][];
+  formulas: Array<Array<string | number | null>>;
+  isNullObject?: boolean;
+  getIntersectionOrNullObject(other: RangeLike): RangeLike;
+  getFormat(): { autofitColumns(): void };
+}
+
+interface SheetLike extends Loadable {
+  name: string;
+  getUsedRangeOrNullObject(): RangeLike;
+  getRange(address: string): RangeLike;
+  getRangeByIndexes(row: number, col: number, rows: number, cols: number): RangeLike;
+  tables: { load(p: string): void; items: Array<{ name: string; getRange(): RangeLike }> };
+}
+
+interface ContextLike {
+  workbook: {
+    worksheets: { getActiveWorksheet(): SheetLike };
+    getSelectedRange(): RangeLike;
+    tables: { add(range: RangeLike, hasHeaders: boolean): { name: string; getRange(): RangeLike } };
+  };
+  sync(): Promise<unknown>;
+}
+
+interface ExcelLike {
+  run<T>(cb: (ctx: ContextLike) => Promise<T>): Promise<T>;
+}
+
+/** The Excel namespace, or null when running as a plain web page. */
+export function getExcel(): ExcelLike | null {
+  const g = globalThis as { Excel?: ExcelLike };
+  return g.Excel ?? null;
+}
+
+export function isInExcel(): boolean {
+  return getExcel() !== null;
+}
+
+function excelOrThrow(): ExcelLike {
+  const e = getExcel();
+  if (!e) {
+    throw new Error("Not running inside Excel, so the worksheet is unavailable.");
+  }
+  return e;
+}
+
+/** Bounded read: clip to the used range, then cap rows. */
+function clip(
+  sheet: SheetLike,
+  target: RangeLike,
+  used: RangeLike,
+  maxRows: number,
+): { range: RangeLike; totalRows: number; truncated: boolean } | null {
+  if (used.isNullObject) return null;
+  const top = Math.max(target.rowIndex, used.rowIndex);
+  const left = Math.max(target.columnIndex, used.columnIndex);
+  const bottom = Math.min(target.rowIndex + target.rowCount, used.rowIndex + used.rowCount);
+  const right = Math.min(target.columnIndex + target.columnCount, used.columnIndex + used.columnCount);
+  const totalRows = bottom - top;
+  const cols = right - left;
+  if (totalRows <= 0 || cols <= 0) return null;
+  const rows = Math.min(totalRows, maxRows);
+  return {
+    range: sheet.getRangeByIndexes(top, left, rows, cols),
+    totalRows,
+    truncated: rows < totalRows,
+  };
+}
+
+const USED_PROPS = "address,rowIndex,columnIndex,rowCount,columnCount,isNullObject";
+
+export const excelHost: Host = {
+  async getSheetContext(sampleRows: number): Promise<RawSheetContext> {
+    return excelOrThrow().run(async (ctx) => {
+      const sheet = ctx.workbook.worksheets.getActiveWorksheet();
+      sheet.load("name");
+      const used = sheet.getUsedRangeOrNullObject();
+      used.load(USED_PROPS);
+      const selection = ctx.workbook.getSelectedRange();
+      selection.load("address");
+      sheet.tables.load("items/name");
+      await ctx.sync();
+
+      if (used.isNullObject) {
+        return {
+          sheetName: sheet.name,
+          usedRangeAddress: null,
+          rowCount: 0,
+          columnCount: 0,
+          selectionAddress: selection.address ?? null,
+          sample: [],
+          tables: [],
+        };
+      }
+
+      const rows = Math.min(used.rowCount, Math.max(sampleRows, 1));
+      const sample = sheet.getRangeByIndexes(used.rowIndex, used.columnIndex, rows, used.columnCount);
+      sample.load("values");
+      const tableRanges = sheet.tables.items.map((t) => {
+        const r = t.getRange();
+        r.load("address");
+        return { name: t.name, range: r };
+      });
+      await ctx.sync();
+
+      return {
+        sheetName: sheet.name,
+        usedRangeAddress: used.address,
+        rowCount: used.rowCount,
+        columnCount: used.columnCount,
+        selectionAddress: selection.address ?? null,
+        sample: sample.values ?? [],
+        tables: tableRanges.map((t) => ({ name: t.name, address: t.range.address })),
+      };
+    });
+  },
+
+  async readRange(address: string, maxRows: number): Promise<ReadResult> {
+    return excelOrThrow().run(async (ctx) => {
+      const sheet = ctx.workbook.worksheets.getActiveWorksheet();
+      const target = sheet.getRange(address);
+      target.load("address,rowIndex,columnIndex,rowCount,columnCount");
+      const used = sheet.getUsedRangeOrNullObject();
+      used.load(USED_PROPS);
+      await ctx.sync();
+
+      const clipped = clip(sheet, target, used, maxRows);
+      if (!clipped) {
+        return { address: target.address, values: [], truncated: false, totalRows: 0 };
+      }
+      clipped.range.load("address,values");
+      await ctx.sync();
+      return {
+        address: clipped.range.address,
+        values: clipped.range.values ?? [],
+        truncated: clipped.truncated,
+        totalRows: clipped.totalRows,
+      };
+    });
+  },
+
+  async createTable(address: string, hasHeaders: boolean): Promise<{ address: string }> {
+    return excelOrThrow().run(async (ctx) => {
+      const sheet = ctx.workbook.worksheets.getActiveWorksheet();
+      const range = sheet.getRange(address);
+      const table = ctx.workbook.tables.add(range, hasHeaders);
+      const created = table.getRange();
+      created.load("address");
+      await ctx.sync();
+      return { address: created.address };
+    });
+  },
+};
+
+/** What the user can put back if they change their mind. */
+export interface AppliedWrite {
+  address: string;
+  /** Formulas as they were before we overwrote them. */
+  priorFormulas: Array<Array<string | number | null>>;
+}
+
+/**
+ * Apply a staged write, after the user accepted it.
+ *
+ * Values and formulas go through a single `formulas` assignment: Office treats
+ * a plain literal in that array as a literal, and a leading "=" as a live
+ * formula, so one array covers both without the two-assignment clobber.
+ */
+export async function applyWrite(write: PendingWrite): Promise<AppliedWrite> {
+  return excelOrThrow().run(async (ctx) => {
+    const sheet = ctx.workbook.worksheets.getActiveWorksheet();
+    const height = write.values.length;
+    const width = write.values[0]?.length ?? 0;
+    const anchor = sheet.getRange(write.address);
+    anchor.load("rowIndex,columnIndex");
+    await ctx.sync();
+
+    const dest = sheet.getRangeByIndexes(anchor.rowIndex, anchor.columnIndex, height, width);
+    dest.load("address,formulas");
+    await ctx.sync();
+    const priorFormulas = dest.formulas ?? [];
+
+    dest.formulas = write.values.map((row) =>
+      Array.from({ length: width }, (_, i) => {
+        const v = row[i];
+        return v === null || v === undefined ? "" : typeof v === "boolean" ? String(v) : v;
+      }),
+    );
+    dest.getFormat().autofitColumns();
+    await ctx.sync();
+
+    return { address: dest.address, priorFormulas };
+  });
+}
+
+/** Restore the formulas captured before a write. */
+export async function revertWrite(applied: AppliedWrite): Promise<void> {
+  await excelOrThrow().run(async (ctx) => {
+    const sheet = ctx.workbook.worksheets.getActiveWorksheet();
+    sheet.getRange(applied.address).formulas = applied.priorFormulas;
+    await ctx.sync();
+  });
+}

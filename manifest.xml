@@ -12,7 +12,7 @@
   <Description DefaultValue="On-prem reconciliation copilot. A deterministic engine flags and drafts — never silently balances."/>
   <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-80.png"/>
-  <SupportUrl DefaultValue="https://github.com/antonio-clair/office-ai-closer"/>
+  <SupportUrl DefaultValue="https://github.com/antonibob/aireconciler"/>
   <AppDomains>
     <AppDomain>https://openrouter.ai</AppDomain>
     <AppDomain>https://localhost:3000</AppDomain>
@@ -74,7 +74,7 @@
       <bt:Urls>
         <bt:Url id="Commands.Url" DefaultValue="https://localhost:3000/commands.html"/>
         <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
-        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/antonio-clair/office-ai-closer"/>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/antonibob/aireconciler"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="Group.Label" DefaultValue="AI Closer"/>

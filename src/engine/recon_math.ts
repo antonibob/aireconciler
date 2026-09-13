@@ -11,55 +11,124 @@ export interface Match {
 }
 
 /**
- * One-to-one amount matching with an optional date window.
- * Greedy by exact amount first (cheap, insensitive), then closest.
- * Returns provenanced pairs for the reviewer to click through.
+ * An amount tied to the worksheet row it came from.
+ *
+ * Callers must not compact their arrays before matching: dropping unparseable
+ * cells shifts every later index, so a reported "row 12" stops meaning row 12
+ * on the sheet. Carrying the row explicitly keeps the audit trail true.
+ */
+export interface Indexed {
+  value: number;
+  row: number;
+}
+
+/**
+ * One-to-one amount matching, exact first then within tolerance.
+ *
+ * Exact matching buckets the B side by amount, so the whole pass is O(n + m)
+ * rather than the O(n x m) scan this replaced — the difference between a few
+ * milliseconds and half a minute on a year of transactions.
+ *
+ * Within a bucket, candidates are consumed in row order, which keeps matching
+ * deterministic when the same amount appears many times (routine in AP).
+ */
+export function matchIndexed(
+  a: Indexed[],
+  b: Indexed[],
+  opts: { amountToleranceCents?: number } = {},
+): { matches: Match[]; unmatchedA: number[]; unmatchedB: number[] } {
+  const tol = opts.amountToleranceCents ?? 0;
+  const matches: Match[] = [];
+  const unmatchedA: number[] = [];
+  const taken = new Set<number>(); // positions within b, not sheet rows
+
+  // amount -> queue of positions in b, in row order.
+  const buckets = new Map<number, number[]>();
+  b.forEach((entry, pos) => {
+    const q = buckets.get(entry.value);
+    if (q) q.push(pos);
+    else buckets.set(entry.value, [pos]);
+  });
+  // Consumed from the front, so each bucket stays a cheap pointer bump.
+  const cursors = new Map<number, number>();
+
+  const takeExact = (value: number): number => {
+    const q = buckets.get(value);
+    if (!q) return -1;
+    let c = cursors.get(value) ?? 0;
+    while (c < q.length && taken.has(q[c]!)) c++;
+    cursors.set(value, c);
+    return c < q.length ? q[c]! : -1;
+  };
+
+  // Only built when a tolerance is in play; exact matching does not need it.
+  const sorted = tol > 0 ? b.map((e, pos) => ({ ...e, pos })).sort((x, y) => x.value - y.value) : [];
+
+  const takeNearest = (value: number): number => {
+    // Walk outwards from the insertion point, taking the closest free
+    // candidate inside the window.
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sorted[mid]!.value < value) lo = mid + 1;
+      else hi = mid;
+    }
+    let left = lo - 1;
+    let right = lo;
+    let best = -1;
+    let bestDelta = Number.POSITIVE_INFINITY;
+    for (;;) {
+      const lDelta = left >= 0 ? value - sorted[left]!.value : Number.POSITIVE_INFINITY;
+      const rDelta = right < sorted.length ? sorted[right]!.value - value : Number.POSITIVE_INFINITY;
+      const delta = Math.min(lDelta, rDelta);
+      if (delta > tol || delta === Number.POSITIVE_INFINITY) break;
+      const pick = lDelta <= rDelta ? left-- : right++;
+      const cand = sorted[pick]!;
+      if (taken.has(cand.pos)) continue;
+      if (delta < bestDelta) {
+        best = cand.pos;
+        bestDelta = delta;
+      }
+      break; // outward walk means the first free candidate is already nearest
+    }
+    return best;
+  };
+
+  for (const entry of a) {
+    let pos = takeExact(entry.value);
+    if (pos === -1 && tol > 0) pos = takeNearest(entry.value);
+    if (pos >= 0) {
+      taken.add(pos);
+      matches.push({ aRow: entry.row, bRow: b[pos]!.row, amountCents: b[pos]!.value });
+    } else {
+      unmatchedA.push(entry.row);
+    }
+  }
+
+  const unmatchedB: number[] = [];
+  b.forEach((entry, pos) => {
+    if (!taken.has(pos)) unmatchedB.push(entry.row);
+  });
+
+  return { matches, unmatchedA, unmatchedB };
+}
+
+/**
+ * Positional convenience wrapper: treats each array position as its own row.
+ * Prefer matchIndexed when the amounts came from a sheet, so that unparseable
+ * cells do not silently renumber everything below them.
  */
 export function matchTransactions(
   aAmounts: Array<number>,
   bAmounts: Array<number>,
   opts: { amountToleranceCents?: number; dateWindowMs?: number } = {},
 ): { matches: Match[]; unmatchedA: number[]; unmatchedB: number[] } {
-  const tol = opts.amountToleranceCents ?? 0;
-  const takenB = new Set<number>();
-  const matches: Match[] = [];
-  const unmatchedA: number[] = [];
-
-  for (let i = 0; i < aAmounts.length; i++) {
-    const need = aAmounts[i]!;
-    // Exact match first.
-    let bestB = -1;
-    for (let j = 0; j < bAmounts.length; j++) {
-      if (takenB.has(j)) continue;
-      if (bAmounts[j] === need) {
-        bestB = j;
-        break;
-      }
-    }
-    // Then within tolerance, closest.
-    if (bestB === -1 && tol > 0) {
-      let bestDelta = Infinity;
-      for (let j = 0; j < bAmounts.length; j++) {
-        if (takenB.has(j)) continue;
-        const d = Math.abs(bAmounts[j]! - need);
-        if (d <= tol && d < bestDelta) {
-          bestDelta = d;
-          bestB = j;
-        }
-      }
-    }
-    if (bestB >= 0) {
-      takenB.add(bestB);
-      matches.push({ aRow: i, bRow: bestB, amountCents: bAmounts[bestB]! });
-    } else {
-      unmatchedA.push(i);
-    }
-  }
-
-  const unmatchedB: number[] = [];
-  for (let j = 0; j < bAmounts.length; j++) if (!takenB.has(j)) unmatchedB.push(j);
-
-  return { matches, unmatchedA, unmatchedB };
+  return matchIndexed(
+    aAmounts.map((value, row) => ({ value, row })),
+    bAmounts.map((value, row) => ({ value, row })),
+    opts,
+  );
 }
 
 /** The residual that matters: book − bank after matching. */

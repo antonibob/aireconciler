@@ -81,21 +81,43 @@ src/
     mapping.ts            last-4 → cardholder
     gst.ts                4-month GST consistency gate
     coding.ts             cross-foot (Check) math
+    recon_math.ts         O(n+m) amount matching with row provenance
+    parsing.ts            filthy-export amount parsing → integer cents
     reconciler.ts         orchestrator: tie-outs, credit detect, suspense, variance
     index.ts
   model/
-    openrouter.ts         BYO-key chat/completions; JSON GL-code drafts
+    client.ts             BYO-key OpenRouter client: tool calling + streaming
+    tools.ts              tool schemas + system prompt handed to the model
+    openrouter.ts         JSON GL-code drafts
   office/
-    ranges.ts             thin Excel read/write adapters (structural types)
+    executor.ts           runs a tool call; host-agnostic, unit-tested
+    excelHost.ts          the only code that touches Excel (structural types)
   taskpane/
-    App.tsx               React UI — variance, tie-outs, flags, draft, settings
+    agent.ts              the tool-calling loop
+    App.tsx               React UI — streaming, tool cards, diff approval
+    markdown.tsx          renders replies as React elements (no innerHTML)
+    reconcile.ts          two-column reconcile with true worksheet rows
     demo.ts               realistic card month used by the demo
     index.{tsx,css} App.css
-tests/
-  engine.test.ts          12 tests encoding the recon-spec rules
+  commands/               manifest FunctionFile stub
+tests/                    87 tests
 scripts/
   build.mjs               esbuild bundle of taskpane + commands entries
 ```
+
+### How a turn works
+
+The add-in does not guess intent from keywords. The model is given the tools in
+`model/tools.ts` and picks; `taskpane/agent.ts` executes what it asked for, feeds
+the results back, and repeats until the model answers.
+
+Two invariants hold regardless of what the model says:
+
+- **It cannot do the arithmetic.** Reconciliation and duplicate detection run in
+  `engine/`, exposed as tools. The model reports returned numbers; it never
+  computes them.
+- **It cannot write to the sheet.** `propose_write` stages a diff. Nothing
+  reaches a cell until the user clicks Apply.
 
 The engine's rules encode Talius's real company conventions — most notably the
 **GST rule**: claim GST *only* for vendors whose treatment has been consistent
