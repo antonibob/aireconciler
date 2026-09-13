@@ -145,8 +145,9 @@ export function App() {
           content:
             "You are a concise, helpful assistant inside an Excel add-in. Plain text, short. " +
             "If the user selects a cell/range, a sheet context is provided as [SHEET CONTEXT]. " +
-            "Write correct cell references. If asked to build a formula, output JUST the formula " +
-            "starting with =, no prose, so it can be inserted into the active cell.",
+            "Write correct cell references. If asked to build a formula, you MUST output ONLY the " +
+            "formula on a single line, starting with = — never explain it, never give steps, " +
+            "never tell the user to type it themselves. The add-in writes it into the sheet for them.",
         };
         const ctxMsg: ChatMessage | null = sheetCtx
           ? {
@@ -201,11 +202,32 @@ export function App() {
             apiKey: config.apiKey,
             model: config.model,
           });
-          setMessages((m) => [...m, { role: "assistant", text: res.content, error: !res.ok, }]);
-          // If it produced a bare formula (starts with =), write it directly too.
-          const trimmed = res.content.replace(/```/g, "").trim();
-          if (window.Excel && trimmed.startsWith("=")) {
-            await autoApply(undefined, trimmed);
+          // Contract layer: if the user asked for a formula and the reply
+          // contains none we can extract, retry ONCE with a hard constraint
+          // instead of showing the user manual instructions.
+          let finalRes = res;
+          const askedForFormula = /\b(formula|randarray|vlookup|xlookup|sumif|index|match|sumif[s]?|countif[s]?|iferror)\b/i.test(text) || /^=/m.test(text);
+          if (askedForFormula && !extractFormula(res.content)) {
+            const retry = await chatCompletion(
+              [
+                ...baseHistory,
+                { role: "assistant", content: res.content },
+                {
+                  role: "user",
+                  content:
+                    "Output rules violated. Reply with ONLY the Excel formula, one line, starting with =. No words, no steps, no explanation.",
+                },
+              ],
+              { apiKey: config.apiKey, model: config.model },
+            );
+            finalRes = retry;
+          }
+          setMessages((m) => [...m, { role: "assistant", text: finalRes.content, error: !finalRes.ok, }]);
+          // If the reply contains a formula (bare, fenced, or wrapped in
+          // prose like "type =X"), extract and write it directly too.
+          const formula = extractFormula(finalRes.content);
+          if (window.Excel && formula) {
+            await autoApply(undefined, formula);
           }
         }
       } catch (err) {
@@ -317,6 +339,24 @@ export function App() {
     } catch (err) {
       setMessages((m) => [...m, { role: "assistant", text: `Undo failed: ${err instanceof Error ? err.message : String(err)}`, error: true }]);
     }
+  };
+
+  /** Extract a bare formula from a possibly-chatty model reply. Handles
+   *  backtick fences, "type =X" / "enter =X" phrasing, and prose-wrapped
+   *  formulas. Returns null when no plausible formula exists. */
+  const extractFormula = (raw: string): string | null => {
+    const text = raw.replace(/```[a-z]*\n?/gi, "").trim();
+    // Whole reply is just a formula.
+    if (/^=/.test(text) && !text.includes("\n")) return text;
+    // Fenced or inline code containing a formula.
+    const fenced = text.match(/`([^`\n]*=[^`\n]+)`/);
+    if (fenced?.[1]) return fenced[1].trim();
+    // "type =RANDARRAY(3,3)" / "enter: =SUM(A1:A9)" / "use =X" phrasing.
+    const instructed = text.match(/\b(?:type|enter|use|paste|insert|enter:|formula:)\s*[:=]?\s*(=[A-Za-z0-9_$.:'\[\]!(),+\-*/&\s^%<>=]+?)(?=[.,;\n]|$)/i);
+    if (instructed?.[1]) return instructed[1].trim();
+    // Last resort: any line starting with "=" that looks like a formula.
+    const line = text.split("\n").find((l) => /^=[A-Z0-9(]/i.test(l.trim()));
+    return line ? line.trim() : null;
   };
 
   /** Apply the last assistant reply directly to the sheet (auto, no button). */
@@ -431,15 +471,17 @@ export function App() {
         )}
       </div>
 
+      {undo && (
+        <div className="chat-actions">
+          <button className="btn undo-btn" onClick={undoLast} disabled={busy} title="Revert the last change I made to your sheet">
+            ↩ Undo last change
+          </button>
+        </div>
+      )}
       <div className="chat-input-wrap">
         {!config.apiKey && (
           <button className="btn" onClick={() => setSettingsOpen(true)}>
             Add your API key to start
-          </button>
-        )}
-        {undo && (
-          <button className="btn undo-btn" onClick={undoLast} disabled={busy} title="Revert the last change I made to your sheet">
-            ↩ Undo last change
           </button>
         )}
         <textarea

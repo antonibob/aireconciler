@@ -42,7 +42,8 @@ body {
 .chat-app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
+  max-height: 100vh;
   max-width: 720px;
   margin: 0 auto;
   padding: 0 18px;
@@ -225,6 +226,14 @@ body {
   margin-bottom: 4px;
 }
 
+/* ============ Post-write actions — own row, never crowds the input ============ */
+.chat-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0 0;
+  flex: none;
+}
+
 /* ============ Input — ruled field, flat ============ */
 .chat-input-wrap {
   display: flex;
@@ -232,6 +241,7 @@ body {
   gap: 8px;
   padding: 10px 2px 6px;
   border-top: 1px solid var(--rule-strong);
+  flex: none;
 }
 .chat-input {
   flex: 1;
