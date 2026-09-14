@@ -35,6 +35,23 @@ function fakeHost(values: Array<Array<string | number | null>>, address = "A1:C9
     async createTable(addr: string) {
       return { address: addr };
     },
+    async listSheets() {
+      return [{ name: "Aug", position: 0 }];
+    },
+  };
+}
+
+const PROCS = [
+  { name: "bank-rec", title: "Bank rec", description: "d", body: "# Bank rec\nSteps.", builtin: true },
+];
+
+/** Executor deps with stub procedure lookups; override per test as needed. */
+function deps(host: Host, stageWrite: (w: PendingWrite) => void = () => {}) {
+  return {
+    host,
+    stageWrite,
+    getProcedure: (n: string) => PROCS.find((p) => p.name === n) ?? null,
+    listProcedures: () => PROCS.map(({ name, title, description }) => ({ name, title, description })),
   };
 }
 
@@ -84,37 +101,53 @@ describe("describeColumns", () => {
 });
 
 describe("executor dispatch", () => {
-  const stageNoop = () => {};
+
+  it("loads a procedure's full instructions", async () => {
+    const exec = createExecutor(deps(fakeHost([])));
+    const res = await exec(call("load_procedure", { name: "bank-rec" }));
+    expect(res.isError).toBeUndefined();
+    expect((res.content as { instructions: string }).instructions).toContain("Steps.");
+  });
+
+  it("names the available procedures when asked for one that does not exist", async () => {
+    const exec = createExecutor(deps(fakeHost([])));
+    const res = await exec(call("load_procedure", { name: "nope" }));
+    expect(res.isError).toBe(true);
+    expect(String((res.content as { error: string }).error)).toContain("bank-rec");
+  });
+
+  it("lists worksheets so a job can span tabs", async () => {
+    const exec = createExecutor(deps(fakeHost([])));
+    const res = await exec(call("list_sheets"));
+    expect((res.content as { sheets: Array<{ name: string }> }).sheets[0]?.name).toBe("Aug");
+  });
 
   it("rejects an unknown tool", async () => {
-    const exec = createExecutor({ host: fakeHost([]), stageWrite: stageNoop });
+    const exec = createExecutor(deps(fakeHost([])));
     const res = await exec(call("nope"));
     expect(res.isError).toBe(true);
   });
 
   it("requires an address rather than guessing one", async () => {
-    const exec = createExecutor({ host: fakeHost([]), stageWrite: stageNoop });
+    const exec = createExecutor(deps(fakeHost([])));
     expect((await exec(call("read_range"))).isError).toBe(true);
     expect((await exec(call("reconcile_columns", { columnA: 0, columnB: 1 }))).isError).toBe(true);
   });
 
   it("accepts integer-like strings for column arguments", async () => {
-    const exec = createExecutor({
-      host: fakeHost([["GL", "Bank"], [100, 100]]),
-      stageWrite: stageNoop,
-    });
+    const exec = createExecutor(deps(fakeHost([["GL", "Bank"], [100, 100]])));
     const res = await exec(call("reconcile_columns", { address: "A1:B2", columnA: "0", columnB: "1" }));
     expect(res.isError).toBeUndefined();
   });
 
   it("refuses to reconcile a column against itself", async () => {
-    const exec = createExecutor({ host: fakeHost([["a", "b"]]), stageWrite: stageNoop });
+    const exec = createExecutor(deps(fakeHost([["a", "b"]])));
     const res = await exec(call("reconcile_columns", { address: "A1:B1", columnA: 1, columnB: 1 }));
     expect(res.isError).toBe(true);
   });
 
   it("rejects out-of-bounds column indices instead of reconciling blanks", async () => {
-    const exec = createExecutor({ host: fakeHost([["GL", "Bank"], [1, 1]]), stageWrite: stageNoop });
+    const exec = createExecutor(deps(fakeHost([["GL", "Bank"], [1, 1]])));
     const res = await exec(call("reconcile_columns", { address: "A1:B2", columnA: 0, columnB: 7 }));
     expect(res.isError).toBe(true);
     expect(String((res.content as { error: string }).error)).toMatch(/out of bounds/);
@@ -130,7 +163,7 @@ describe("executor dispatch", () => {
       ],
       "A5:B7",
     );
-    const exec = createExecutor({ host, stageWrite: stageNoop });
+    const exec = createExecutor(deps(host));
     const res = await exec(call("reconcile_columns", { address: "A5:B7", columnA: 0, columnB: 1 }));
     const c = res.content as {
       unmatchedGlRows: number[];
@@ -146,10 +179,7 @@ describe("executor dispatch", () => {
 
   it("stages a write without touching the sheet", async () => {
     const staged: PendingWrite[] = [];
-    const exec = createExecutor({
-      host: fakeHost([["old"]]),
-      stageWrite: (w) => staged.push(w),
-    });
+    const exec = createExecutor(deps(fakeHost([["old"]]), (w) => { staged.push(w); }));
     const res = await exec(call("propose_write", { address: "A1", values: [["new"]], note: "set it" }));
     expect(staged).toHaveLength(1);
     expect(staged[0]?.values).toEqual([["new"]]);
@@ -158,20 +188,20 @@ describe("executor dispatch", () => {
   });
 
   it("rejects a ragged write rather than writing a misaligned rectangle", async () => {
-    const exec = createExecutor({ host: fakeHost([[]]), stageWrite: stageNoop });
+    const exec = createExecutor(deps(fakeHost([[]])));
     const res = await exec(call("propose_write", { address: "A1", values: [["a", "b"], ["c"]], note: "x" }));
     expect(res.isError).toBe(true);
   });
 
   it("rejects values that are not an array of rows", async () => {
-    const exec = createExecutor({ host: fakeHost([[]]), stageWrite: stageNoop });
+    const exec = createExecutor(deps(fakeHost([[]])));
     expect((await exec(call("propose_write", { address: "A1", values: "nope", note: "x" }))).isError).toBe(true);
     expect((await exec(call("propose_write", { address: "A1", values: ["a"], note: "x" }))).isError).toBe(true);
   });
 
   it("caps read_range rather than marshalling an unbounded selection", async () => {
     const big = Array.from({ length: 9000 }, (_, i) => [i]);
-    const exec = createExecutor({ host: fakeHost(big), stageWrite: stageNoop });
+    const exec = createExecutor(deps(fakeHost(big)));
     const res = await exec(call("read_range", { address: "A:A", maxRows: 999999 }));
     const c = res.content as { values: unknown[]; truncated: boolean };
     expect(c.values.length).toBe(5000);
@@ -180,7 +210,7 @@ describe("executor dispatch", () => {
 
   it("refuses to reconcile a range past the row ceiling instead of silently truncating", async () => {
     const big = Array.from({ length: 9000 }, () => [1, 1]);
-    const exec = createExecutor({ host: fakeHost(big), stageWrite: stageNoop });
+    const exec = createExecutor(deps(fakeHost(big)));
     const res = await exec(call("reconcile_columns", { address: "A1:B9000", columnA: 0, columnB: 1 }));
     expect(res.isError).toBe(true);
     expect(String((res.content as { error: string }).error)).toMatch(/Narrow the address/);

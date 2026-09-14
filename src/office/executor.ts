@@ -14,6 +14,7 @@
 import { findDuplicates } from "../engine/index.js";
 import { reconcileTwoColumns } from "../taskpane/reconcile.js";
 import type { ToolCall, ToolResult } from "../model/tools.js";
+import type { Procedure, ProcedureSummary } from "../procedures/types.js";
 
 export type CellValue = string | number | boolean | null;
 
@@ -49,6 +50,7 @@ export interface ReadResult {
 /** Everything the executor needs from the spreadsheet host. */
 export interface Host {
   getSheetContext(sampleRows: number): Promise<RawSheetContext>;
+  listSheets(): Promise<Array<{ name: string; position: number }>>;
   readRange(address: string, maxRows: number): Promise<ReadResult>;
   createTable(address: string, hasHeaders: boolean): Promise<{ address: string }>;
 }
@@ -67,12 +69,32 @@ export interface ExecutorDeps {
   host: Host;
   /** Shows the user a diff; returns what the model is told. */
   stageWrite: (write: PendingWrite) => void;
+  getProcedure: (name: string) => Procedure | null;
+  listProcedures: () => ProcedureSummary[];
 }
 
 const DEFAULT_SAMPLE_ROWS = 8;
 const DEFAULT_MAX_ROWS = 200;
 /** Hard ceiling regardless of what the model asks for; keeps the bridge sane. */
 const ABSOLUTE_MAX_ROWS = 5000;
+
+/**
+ * Split "Cashbook!B2:D40" into its sheet and cell halves.
+ *
+ * Real work spans tabs — a bank rec reads the statement on one sheet and the
+ * cashbook on another — so an address without a sheet means "the active one",
+ * and one with a sheet must resolve to that sheet.
+ */
+export function splitAddress(address: string): { sheet: string | null; cell: string } {
+  const i = address.lastIndexOf("!");
+  if (i === -1) return { sheet: null, cell: address.trim() };
+  // Sheet names containing spaces or punctuation are quoted: 'Q3 Bank'!A1
+  const rawSheet = address.slice(0, i).trim();
+  const sheet = /^'(.*)'$/.test(rawSheet)
+    ? rawSheet.slice(1, -1).replace(/''/g, "'")
+    : rawSheet;
+  return { sheet: sheet || null, cell: address.slice(i + 1).trim() };
+}
 
 /** Zero-based column index to spreadsheet letter: 0 -> A, 26 -> AA. */
 export function columnLetter(index: number): string {
@@ -190,6 +212,30 @@ export function createExecutor(deps: ExecutorDeps) {
             ctx.rowCount === 0
               ? "The sheet is empty."
               : "Column indices in columnDetail are offsets within usedRange, which is what the reconcile and duplicate tools expect.",
+        });
+      }
+
+      case "load_procedure": {
+        const name = str(call.args, "name");
+        if (!name) return fail(call, "load_procedure needs a `name` from the Procedures list.");
+        const proc = deps.getProcedure(name);
+        if (!proc) {
+          const known = deps.listProcedures().map((p) => p.name);
+          return fail(
+            call,
+            known.length
+              ? `No procedure named "${name}". Available: ${known.join(", ")}.`
+              : `No procedure named "${name}", and none are defined.`,
+          );
+        }
+        return ok(call, { name: proc.name, title: proc.title, instructions: proc.body });
+      }
+
+      case "list_sheets": {
+        const sheets = await host.listSheets();
+        return ok(call, {
+          sheets,
+          note: 'Address another sheet as "SheetName!A1:D99". Quote names containing spaces.',
         });
       }
 

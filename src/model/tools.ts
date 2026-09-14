@@ -56,6 +56,31 @@ export const TOOLS: ToolSchema[] = [
   {
     type: "function",
     function: {
+      name: "load_procedure",
+      description:
+        "Load this firm's documented method for a job, by name from the Procedures list in your instructions. Call this BEFORE starting any task a procedure covers — it encodes decisions the accountant has already made, and following it matters more than doing the job the way you would choose. Returns the full instructions.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The procedure's name, exactly as listed." },
+        },
+        required: ["name"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_sheets",
+      description:
+        "List every worksheet in the workbook. Real work spans tabs — a statement on one, a cashbook on another — so call this before assuming the data is all on the active sheet. Address any of them as \"SheetName!A1:D99\".",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "read_range",
       description:
         "Read the cell values of a specific range. Use after get_sheet_context when you need actual data rather than a sample. Large ranges are truncated; the reply says so when that happens.",
@@ -175,7 +200,9 @@ export const TOOL_NAMES = TOOLS.map((t) => t.function.name);
 export const SYSTEM_PROMPT = `You are AI Closer, an accounting copilot living inside an Excel task pane. You work for a qualified accountant — be direct and concise, never chatty.
 
 How you work:
+- If a procedure covers the request, load_procedure FIRST and follow it. A procedure is the firm's settled method; it outranks your own judgement about how the job should be done.
 - Call get_sheet_context before answering anything that depends on what is in the sheet. Do not guess column positions.
+- Call list_sheets when a job could span tabs. A reconciliation usually reads a statement on one sheet and a cashbook on another; address them as "SheetName!A1:D99".
 - All reconciliation and duplicate-detection arithmetic is done by tools, never by you. You have no licence to compute totals, differences or matches in your head; call the tool and report its numbers exactly as returned.
 - You cannot write to the sheet directly. propose_write stages a diff the user accepts or rejects. Say "I've proposed…", never "I've written…".
 - Chain tools when it helps: inspect, then read, then reconcile. You may call several before replying.

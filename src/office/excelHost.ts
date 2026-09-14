@@ -14,6 +14,7 @@
  *      blanking every cell the first one filled.
  */
 
+import { splitAddress } from "./executor.js";
 import type { CellValue, Host, PendingWrite, RawSheetContext, ReadResult } from "./executor.js";
 
 interface Loadable {
@@ -43,7 +44,12 @@ interface SheetLike extends Loadable {
 
 interface ContextLike {
   workbook: {
-    worksheets: { getActiveWorksheet(): SheetLike };
+    worksheets: {
+      getActiveWorksheet(): SheetLike;
+      getItem(name: string): SheetLike;
+      load(props: string): void;
+      items: Array<{ name: string; position: number }>;
+    };
     getSelectedRange(): RangeLike;
     tables: { add(range: RangeLike, hasHeaders: boolean): { name: string; getRange(): RangeLike } };
   };
@@ -97,6 +103,20 @@ function clip(
 
 const USED_PROPS = "address,rowIndex,columnIndex,rowCount,columnCount,isNullObject";
 
+/**
+ * Resolve the worksheet an address names, falling back to the active one.
+ * Everything that touches a range goes through here, so a cross-sheet
+ * reconciliation reads the sheet it asked for rather than whatever tab
+ * happened to be in front.
+ */
+function sheetFor(ctx: ContextLike, address: string): { sheet: SheetLike; cell: string } {
+  const { sheet, cell } = splitAddress(address);
+  return {
+    sheet: sheet ? ctx.workbook.worksheets.getItem(sheet) : ctx.workbook.worksheets.getActiveWorksheet(),
+    cell,
+  };
+}
+
 export const excelHost: Host = {
   async getSheetContext(sampleRows: number): Promise<RawSheetContext> {
     return excelOrThrow().run(async (ctx) => {
@@ -143,10 +163,18 @@ export const excelHost: Host = {
     });
   },
 
+  async listSheets(): Promise<Array<{ name: string; position: number }>> {
+    return excelOrThrow().run(async (ctx) => {
+      ctx.workbook.worksheets.load("items/name,items/position");
+      await ctx.sync();
+      return ctx.workbook.worksheets.items.map((s) => ({ name: s.name, position: s.position }));
+    });
+  },
+
   async readRange(address: string, maxRows: number): Promise<ReadResult> {
     return excelOrThrow().run(async (ctx) => {
-      const sheet = ctx.workbook.worksheets.getActiveWorksheet();
-      const target = sheet.getRange(address);
+      const { sheet, cell } = sheetFor(ctx, address);
+      const target = sheet.getRange(cell);
       target.load("address,rowIndex,columnIndex,rowCount,columnCount");
       const used = sheet.getUsedRangeOrNullObject();
       used.load(USED_PROPS);
@@ -169,8 +197,8 @@ export const excelHost: Host = {
 
   async createTable(address: string, hasHeaders: boolean): Promise<{ address: string }> {
     return excelOrThrow().run(async (ctx) => {
-      const sheet = ctx.workbook.worksheets.getActiveWorksheet();
-      const range = sheet.getRange(address);
+      const { sheet, cell } = sheetFor(ctx, address);
+      const range = sheet.getRange(cell);
       const table = ctx.workbook.tables.add(range, hasHeaders);
       const created = table.getRange();
       created.load("address");
@@ -196,10 +224,10 @@ export interface AppliedWrite {
  */
 export async function applyWrite(write: PendingWrite): Promise<AppliedWrite> {
   return excelOrThrow().run(async (ctx) => {
-    const sheet = ctx.workbook.worksheets.getActiveWorksheet();
+    const { sheet, cell } = sheetFor(ctx, write.address);
     const height = write.values.length;
     const width = write.values[0]?.length ?? 0;
-    const anchor = sheet.getRange(write.address);
+    const anchor = sheet.getRange(cell);
     anchor.load("rowIndex,columnIndex");
     await ctx.sync();
 
@@ -224,8 +252,8 @@ export async function applyWrite(write: PendingWrite): Promise<AppliedWrite> {
 /** Restore the formulas captured before a write. */
 export async function revertWrite(applied: AppliedWrite): Promise<void> {
   await excelOrThrow().run(async (ctx) => {
-    const sheet = ctx.workbook.worksheets.getActiveWorksheet();
-    sheet.getRange(applied.address).formulas = applied.priorFormulas;
+    const { sheet, cell } = sheetFor(ctx, applied.address);
+    sheet.getRange(cell).formulas = applied.priorFormulas;
     await ctx.sync();
   });
 }

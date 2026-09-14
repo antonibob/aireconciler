@@ -517,3 +517,55 @@ body {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* ============ Procedures — the firm's documented methods ============ */
+.proc-list {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+}
+.proc-list li {
+  padding: 8px 0;
+  border-top: 1px solid var(--rule);
+}
+.proc-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.proc-title {
+  font-weight: 600;
+  font-size: 13px;
+  flex: 1;
+}
+.proc-badge {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.proc-desc {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.proc-input {
+  background: #fff;
+  border: 1px solid var(--rule-strong);
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+}
+.proc-input:focus {
+  border-color: var(--accent);
+}
+.proc-body {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+}

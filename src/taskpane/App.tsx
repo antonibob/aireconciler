@@ -13,8 +13,10 @@ import {
   revertWrite,
   type AppliedWrite,
 } from "../office/excelHost.js";
+import { getProcedure, listProcedures, proceduresMenu } from "../procedures/store.js";
 import { runAgent, trimHistory, type AgentEvent } from "./agent.js";
 import { Markdown } from "./markdown.js";
+import { Procedures } from "./Procedures.js";
 import "./App.css";
 
 const STORAGE_KEY = "ai-closer-config";
@@ -66,6 +68,8 @@ type Entry =
 
 const TOOL_LABELS: Record<string, string> = {
   get_sheet_context: "Inspecting the sheet",
+  list_sheets: "Listing sheets",
+  load_procedure: "Loading procedure",
   read_range: "Reading",
   reconcile_columns: "Reconciling",
   find_duplicates: "Checking for duplicates",
@@ -75,6 +79,7 @@ const TOOL_LABELS: Record<string, string> = {
 
 function toolLabel(name: string, args: Record<string, unknown>): string {
   const base = TOOL_LABELS[name] ?? name;
+  if (name === "load_procedure" && typeof args.name === "string") return `${base}: ${args.name}`;
   const addr = typeof args.address === "string" ? args.address : null;
   return addr ? `${base} ${addr}` : base;
 }
@@ -151,6 +156,7 @@ export function App() {
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(!config.apiKey);
+  const [procsOpen, setProcsOpen] = useState(false);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -317,9 +323,21 @@ export function App() {
       const execute = createExecutor({
         host: excelHost,
         stageWrite: (write) => push({ kind: "write", id: nextId(), write, status: "pending" }),
+        getProcedure,
+        listProcedures,
       });
 
-      convo.current = trimHistory([...convo.current, { role: "user", content: prompt }]);
+      // Rebuild the system turn each send so a procedure written a moment ago
+      // is already on the menu.
+      const system: ChatMessage = {
+        role: "system",
+        content: SYSTEM_PROMPT + proceduresMenu(listProcedures()),
+      };
+      convo.current = trimHistory([
+        system,
+        ...convo.current.filter((m) => m.role !== "system"),
+        { role: "user", content: prompt },
+      ]);
 
       const outcome = await runAgent({
         messages: convo.current,
@@ -359,7 +377,20 @@ export function App() {
         <span className={`status-dot ${config.apiKey ? "on" : ""}`} title={config.apiKey ? "Key set" : "No API key"} />
         <span className="chat-subtitle">{config.model}</span>
         {spend > 0 && <span className="spend">${spend.toFixed(4)}</span>}
-        <button className="icon-btn" onClick={() => setSettingsOpen((o) => !o)} title="Settings">⚙</button>
+        <button
+          className="icon-btn"
+          onClick={() => { setProcsOpen((o) => !o); setSettingsOpen(false); }}
+          title="Procedures — how this firm does a job"
+        >
+          ☰
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => { setSettingsOpen((o) => !o); setProcsOpen(false); }}
+          title="Settings"
+        >
+          ⚙
+        </button>
       </div>
 
       {!isInExcel() && (
@@ -367,6 +398,8 @@ export function App() {
           Not running inside Excel — sheet tools are unavailable in this preview.
         </div>
       )}
+
+      {procsOpen && <Procedures onClose={() => setProcsOpen(false)} />}
 
       {settingsOpen && (
         <div className="settings">
