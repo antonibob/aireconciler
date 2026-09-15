@@ -569,3 +569,66 @@ body {
   font-size: 12px;
   line-height: 1.55;
 }
+
+/* ============ Self-check — proving the Excel layer works ============ */
+.check-list {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+}
+.check {
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
+}
+.check-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.check-icon {
+  font-family: var(--mono);
+  width: 12px;
+}
+.check-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.check.pass .check-icon {
+  color: var(--good);
+}
+.check.fail .check-icon,
+.check.fail .check-name {
+  color: #c8332a;
+}
+.check.skip .check-icon,
+.check.skip .check-name {
+  color: var(--faint);
+}
+.check.running .check-icon {
+  color: var(--accent);
+  display: inline-block;
+  animation: spin 1.1s linear infinite;
+}
+.check-detail {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 2px 0 0 20px;
+  font-family: var(--mono);
+  word-break: break-word;
+}
+.check-summary {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-left: 2px solid var(--good);
+  background: var(--data-bg);
+}
+.check-summary.bad {
+  border-left-color: #c8332a;
+  color: #c8332a;
+}
+.check-summary.neutral {
+  border-left-color: var(--faint);
+  color: var(--muted);
+}

@@ -40,6 +40,8 @@ interface SheetLike extends Loadable {
   getRange(address: string): RangeLike;
   getRangeByIndexes(row: number, col: number, rows: number, cols: number): RangeLike;
   tables: { load(p: string): void; items: Array<{ name: string; getRange(): RangeLike }> };
+  delete(): void;
+  activate(): void;
 }
 
 interface ContextLike {
@@ -47,6 +49,8 @@ interface ContextLike {
     worksheets: {
       getActiveWorksheet(): SheetLike;
       getItem(name: string): SheetLike;
+      getItemOrNullObject(name: string): SheetLike & { isNullObject?: boolean };
+      add(name?: string): SheetLike;
       load(props: string): void;
       items: Array<{ name: string; position: number }>;
     };
@@ -255,5 +259,34 @@ export async function revertWrite(applied: AppliedWrite): Promise<void> {
     const { sheet, cell } = sheetFor(ctx, applied.address);
     sheet.getRange(cell).formulas = applied.priorFormulas;
     await ctx.sync();
+  });
+}
+
+/**
+ * Diagnostics helpers. These are NOT exposed as tools — the model cannot
+ * create or delete worksheets. They exist so the self-check can do its work in
+ * a scratch sheet and remove it afterwards, rather than writing into data
+ * somebody is reconciling.
+ */
+export async function createScratchSheet(name: string): Promise<void> {
+  await excelOrThrow().run(async (ctx) => {
+    const existing = ctx.workbook.worksheets.getItemOrNullObject(name);
+    existing.load("isNullObject");
+    await ctx.sync();
+    if (!existing.isNullObject) existing.delete();
+    ctx.workbook.worksheets.add(name);
+    await ctx.sync();
+  });
+}
+
+export async function deleteScratchSheet(name: string): Promise<void> {
+  await excelOrThrow().run(async (ctx) => {
+    const sheet = ctx.workbook.worksheets.getItemOrNullObject(name);
+    sheet.load("isNullObject");
+    await ctx.sync();
+    if (!sheet.isNullObject) {
+      sheet.delete();
+      await ctx.sync();
+    }
   });
 }

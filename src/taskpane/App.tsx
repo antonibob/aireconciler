@@ -17,6 +17,7 @@ import { getProcedure, listProcedures, proceduresMenu } from "../procedures/stor
 import { runAgent, trimHistory, type AgentEvent } from "./agent.js";
 import { Markdown } from "./markdown.js";
 import { Procedures } from "./Procedures.js";
+import { Diagnostics } from "./Diagnostics.js";
 import "./App.css";
 
 const STORAGE_KEY = "ai-closer-config";
@@ -157,6 +158,7 @@ export function App() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(!config.apiKey);
   const [procsOpen, setProcsOpen] = useState(false);
+  const [diagOpen, setDiagOpen] = useState(false);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -379,17 +381,24 @@ export function App() {
         {spend > 0 && <span className="spend">${spend.toFixed(4)}</span>}
         <button
           className="icon-btn"
-          onClick={() => { setProcsOpen((o) => !o); setSettingsOpen(false); }}
+          onClick={() => { setProcsOpen((o) => !o); setSettingsOpen(false); setDiagOpen(false); }}
           title="Procedures — how this firm does a job"
         >
           ☰
         </button>
         <button
           className="icon-btn"
-          onClick={() => { setSettingsOpen((o) => !o); setProcsOpen(false); }}
+          onClick={() => { setSettingsOpen((o) => !o); setProcsOpen(false); setDiagOpen(false); }}
           title="Settings"
         >
           ⚙
+        </button>
+        <button
+          className="icon-btn"
+          onClick={() => { setDiagOpen((o) => !o); setProcsOpen(false); setSettingsOpen(false); }}
+          title="Self-check — verify the Excel connection"
+        >
+          ⚕
         </button>
       </div>
 
@@ -400,6 +409,8 @@ export function App() {
       )}
 
       {procsOpen && <Procedures onClose={() => setProcsOpen(false)} />}
+
+      {diagOpen && <Diagnostics onClose={() => setDiagOpen(false)} />}
 
       {settingsOpen && (
         <div className="settings">
