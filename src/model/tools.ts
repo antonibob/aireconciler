@@ -180,6 +180,56 @@ export const TOOLS: ToolSchema[] = [
   {
     type: "function",
     function: {
+      name: "create_chart",
+      description:
+        "Add a native Excel chart over a range. The chart is live — it updates when the cells do.\n\nPick the type from what the reader has to DO with the data, not from the word the user happened to use:\n- Compare magnitude across categories → columnClustered, or barClustered when the names are long or there are many.\n- Trend over time → line (lineMarkers when there are only a handful of points).\n- Part-to-whole across categories → columnStacked, or barStacked100 for share.\n- Relationship between two measures → xyScatter.\n- Composition at one moment, 2-5 slices only → pie. For anything more it is unreadable; use barClustered instead.\n\nDo not chart a single number — say it. Past about seven categories a chart stops being readable, so propose_write a table instead. Never build two charts to fake a second axis: for two measures of different scale, either index both to a common base or make two separate charts.\n\nThe chart is added immediately rather than staged, because it is additive and the user can delete it with one click. Ask first unless they clearly asked for a chart.",
+      parameters: {
+        type: "object",
+        properties: {
+          dataRange: {
+            type: "string",
+            description:
+              A1 + " Include the header row and the category labels — Excel reads series names and axis labels from them.",
+          },
+          chartType: {
+            type: "string",
+            enum: [
+              "columnClustered",
+              "columnStacked",
+              "columnStacked100",
+              "barClustered",
+              "barStacked",
+              "barStacked100",
+              "line",
+              "lineMarkers",
+              "pie",
+              "xyScatter",
+              "area",
+            ],
+            description: "Chosen by the job the reader must do, per the guidance above.",
+          },
+          title: { type: "string", description: "Chart title. State the finding, not the columns — \"Bank fees climbed after June\" beats \"Fees by month\"." },
+          seriesBy: {
+            type: "string",
+            enum: ["auto", "rows", "columns"],
+            description: "Whether each series is a row or a column of the range. Defaults to auto.",
+          },
+          placement: {
+            type: "string",
+            description:
+              "Top-left cell to anchor the chart, e.g. \"F2\". Defaults to just right of the data. Pick somewhere empty.",
+          },
+          valueAxisTitle: { type: "string", description: "Label for the value axis, with its unit (e.g. \"CAD\")." },
+          categoryAxisTitle: { type: "string", description: "Label for the category axis." },
+        },
+        required: ["dataRange", "chartType", "title"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "create_table",
       description: "Convert a range into a native Excel Table. Ask the user first unless they clearly requested it.",
       parameters: {

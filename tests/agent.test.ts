@@ -185,3 +185,74 @@ describe("trimHistory", () => {
     expect(out[1]?.role).not.toBe("tool");
   });
 });
+
+describe("runAgent with a model that does not emit tool calls properly", () => {
+  it("recovers a call the model wrote as fenced JSON in its reply", async () => {
+    // The characteristic DeepSeek/GLM failure: it knows what to call, and says
+    // so in prose instead of using the tool_calls field.
+    const { fn, seen } = scripted([
+      {
+        content: 'Let me look at the sheet.\n```json\n{"name":"get_sheet_context","arguments":{}}\n```',
+        toolCalls: [],
+        ok: true,
+      },
+      { content: "Three columns: Date, Vendor, Amount.", toolCalls: [], ok: true },
+    ]);
+    const calls: string[] = [];
+    const out = await runAgent({
+      messages: [{ role: "user", content: "what's in the sheet" }],
+      cfg,
+      execute: async (c) => {
+        calls.push(c.name);
+        return { toolCallId: c.id, name: c.name, content: { ok: true } };
+      },
+      stream: fn,
+      onEvent: () => {},
+    });
+
+    expect(out.ok).toBe(true);
+    expect(calls).toEqual(["get_sheet_context"]);
+    // The leaked JSON must not survive into the transcript the user reads.
+    const assistant = seen[1]!.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("Let me look at the sheet.");
+    expect(assistant?.content).not.toContain("{");
+  });
+
+  it("repairs a misnamed tool and aliased arguments", async () => {
+    const { fn } = scripted([
+      { content: "", toolCalls: [{ id: "c1", name: "readRange", args: { range: "A1:B9" } }], ok: true },
+      { content: "done", toolCalls: [], ok: true },
+    ]);
+    const received: Array<{ name: string; args: unknown }> = [];
+    await runAgent({
+      messages: [{ role: "user", content: "read it" }],
+      cfg,
+      execute: async (c) => {
+        received.push({ name: c.name, args: c.args });
+        return { toolCallId: c.id, name: c.name, content: {} };
+      },
+      stream: fn,
+      onEvent: () => {},
+    });
+    expect(received[0]).toEqual({ name: "read_range", args: { address: "A1:B9" } });
+  });
+
+  it("treats a reply that only looks like JSON as an ordinary answer", async () => {
+    const { fn } = scripted([
+      { content: '{"residual": 42.17, "balanced": false}', toolCalls: [], ok: true },
+    ]);
+    let executed = false;
+    const out = await runAgent({
+      messages: [{ role: "user", content: "x" }],
+      cfg,
+      execute: async (c) => {
+        executed = true;
+        return { toolCallId: c.id, name: c.name, content: {} };
+      },
+      stream: fn,
+      onEvent: () => {},
+    });
+    expect(executed).toBe(false);
+    expect(out.ok).toBe(true);
+  });
+});

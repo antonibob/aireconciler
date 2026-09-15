@@ -14,8 +14,15 @@
  *      blanking every cell the first one filled.
  */
 
-import { splitAddress } from "./executor.js";
-import type { CellValue, Host, PendingWrite, RawSheetContext, ReadResult } from "./executor.js";
+import { columnLetter, splitAddress, startColumnOf, startRowOf } from "./executor.js";
+import type {
+  CellValue,
+  ChartSpec,
+  Host,
+  PendingWrite,
+  RawSheetContext,
+  ReadResult,
+} from "./executor.js";
 
 interface Loadable {
   load(props: string): void;
@@ -40,8 +47,21 @@ interface SheetLike extends Loadable {
   getRange(address: string): RangeLike;
   getRangeByIndexes(row: number, col: number, rows: number, cols: number): RangeLike;
   tables: { load(p: string): void; items: Array<{ name: string; getRange(): RangeLike }> };
+  charts: {
+    add(type: string, source: RangeLike, seriesBy: string): ChartLike;
+  };
   delete(): void;
   activate(): void;
+}
+
+interface ChartLike extends Loadable {
+  name: string;
+  title: { text: string };
+  axes: {
+    valueAxis: { title: { text: string } };
+    categoryAxis: { title: { text: string } };
+  };
+  setPosition(topLeft: RangeLike, bottomRight: RangeLike): void;
 }
 
 interface ContextLike {
@@ -196,6 +216,44 @@ export const excelHost: Host = {
         truncated: clipped.truncated,
         totalRows: clipped.totalRows,
       };
+    });
+  },
+
+  async createChart(spec: ChartSpec): Promise<{ name: string; anchor: string }> {
+    return excelOrThrow().run(async (ctx) => {
+      const { sheet, cell } = sheetFor(ctx, spec.dataRange);
+      const data = sheet.getRange(cell);
+      data.load("rowIndex,columnIndex,rowCount,columnCount");
+      await ctx.sync();
+
+      const chart = sheet.charts.add(spec.chartType, data, spec.seriesBy);
+      chart.title.text = spec.title;
+
+      // Default to just right of the data, with a gap, so the chart never
+      // covers the numbers it describes.
+      const anchorCell =
+        spec.placement ??
+        `${columnLetter(data.columnIndex + data.columnCount + 1)}${data.rowIndex + 1}`;
+      const anchor = sheet.getRange(anchorCell);
+      // A chart smaller than this is unreadable; 8 columns x 15 rows is roughly
+      // the 480x288 Excel uses for a default chart.
+      const bottomRight = sheet.getRangeByIndexes(
+        startRowOf(anchorCell),
+        startColumnOf(anchorCell),
+        15,
+        8,
+      );
+      chart.setPosition(anchor, bottomRight);
+
+      if (spec.valueAxisTitle) {
+        chart.axes.valueAxis.title.text = spec.valueAxisTitle;
+      }
+      if (spec.categoryAxisTitle) {
+        chart.axes.categoryAxis.title.text = spec.categoryAxisTitle;
+      }
+      chart.load("name");
+      await ctx.sync();
+      return { name: chart.name, anchor: anchorCell };
     });
   },
 

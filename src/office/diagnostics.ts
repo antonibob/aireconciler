@@ -212,6 +212,21 @@ export async function runDiagnostics(onProgress?: (c: Check) => void): Promise<C
     );
 
     record(
+      await step("Create a chart", async () => {
+        const res = await excelHost.createChart({
+          dataRange: `${SCRATCH}!A1:B2`,
+          chartType: "ColumnClustered",
+          title: "Diagnostics",
+          seriesBy: "Auto",
+          placement: "E5",
+          valueAxisTitle: null,
+          categoryAxisTitle: null,
+        });
+        return `Chart "${res.name}" anchored at ${res.anchor}.`;
+      }),
+    );
+
+    record(
       await step("Create a table", async () => {
         const res = await excelHost.createTable(`${SCRATCH}!A1:C2`, true);
         return `Table created over ${res.address}.`;

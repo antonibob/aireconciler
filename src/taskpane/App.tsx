@@ -76,12 +76,18 @@ const TOOL_LABELS: Record<string, string> = {
   find_duplicates: "Checking for duplicates",
   propose_write: "Preparing a change",
   create_table: "Creating a table",
+  create_chart: "Charting",
 };
 
 function toolLabel(name: string, args: Record<string, unknown>): string {
   const base = TOOL_LABELS[name] ?? name;
   if (name === "load_procedure" && typeof args.name === "string") return `${base}: ${args.name}`;
-  const addr = typeof args.address === "string" ? args.address : null;
+  const addr =
+    typeof args.address === "string"
+      ? args.address
+      : typeof args.dataRange === "string"
+        ? args.dataRange
+        : null;
   return addr ? `${base} ${addr}` : base;
 }
 

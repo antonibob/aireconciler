@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   columnLetter,
   createExecutor,
   describeColumns,
   startColumnOf,
   startRowOf,
+  type ChartSpec,
   type Host,
   type PendingWrite,
   type ReadResult,
@@ -38,8 +39,18 @@ function fakeHost(values: Array<Array<string | number | null>>, address = "A1:C9
     async listSheets() {
       return [{ name: "Aug", position: 0 }];
     },
+    async createChart(spec) {
+      charted.push(spec);
+      return { name: "Chart 1", anchor: spec.placement ?? "E1" };
+    },
   };
 }
+
+/** Chart specs the fake host received, for asserting on the mapping. */
+let charted: ChartSpec[] = [];
+beforeEach(() => {
+  charted = [];
+});
 
 const PROCS = [
   { name: "bank-rec", title: "Bank rec", description: "d", body: "# Bank rec\nSteps.", builtin: true },
@@ -120,6 +131,44 @@ describe("executor dispatch", () => {
     const exec = createExecutor(deps(fakeHost([])));
     const res = await exec(call("list_sheets"));
     expect((res.content as { sheets: Array<{ name: string }> }).sheets[0]?.name).toBe("Aug");
+  });
+
+  it("maps a friendly chart type to the Excel enum", async () => {
+    const exec = createExecutor(deps(fakeHost([["Month", "Fees"], ["Aug", 120], ["Sep", 140]])));
+    const res = await exec(
+      call("create_chart", { dataRange: "A1:B3", chartType: "columnClustered", title: "Fees by month" }),
+    );
+    expect(res.isError).toBeUndefined();
+    expect(charted[0]?.chartType).toBe("ColumnClustered");
+    expect(charted[0]?.title).toBe("Fees by month");
+    expect(charted[0]?.seriesBy).toBe("Auto");
+  });
+
+  it("names the valid types when given one it does not know", async () => {
+    const exec = createExecutor(deps(fakeHost([["a", 1], ["b", 2]])));
+    const res = await exec(call("create_chart", { dataRange: "A1:B2", chartType: "3dPyramid", title: "t" }));
+    expect(res.isError).toBe(true);
+    expect(String((res.content as { error: string }).error)).toContain("columnClustered");
+  });
+
+  it("refuses to chart a single cell", async () => {
+    const exec = createExecutor(deps(fakeHost([[42]])));
+    const res = await exec(call("create_chart", { dataRange: "A1", chartType: "pie", title: "t" }));
+    expect(res.isError).toBe(true);
+    expect(String((res.content as { error: string }).error)).toMatch(/single cell/i);
+    expect(charted).toHaveLength(0);
+  });
+
+  it("requires a title, so charts are never unlabelled", async () => {
+    const exec = createExecutor(deps(fakeHost([["a", 1], ["b", 2]])));
+    const res = await exec(call("create_chart", { dataRange: "A1:B2", chartType: "line" }));
+    expect(res.isError).toBe(true);
+  });
+
+  it("normalises seriesBy", async () => {
+    const exec = createExecutor(deps(fakeHost([["a", 1], ["b", 2]])));
+    await exec(call("create_chart", { dataRange: "A1:B2", chartType: "line", title: "t", seriesBy: "ROWS" }));
+    expect(charted[0]?.seriesBy).toBe("Rows");
   });
 
   it("rejects an unknown tool", async () => {

@@ -14,6 +14,7 @@ import {
   type ChatTurn,
   type ClientConfig,
 } from "../model/client.js";
+import { normalizeCall, salvageToolCalls, stripToolCallText } from "../model/salvage.js";
 import { TOOLS, type ToolCall, type ToolResult } from "../model/tools.js";
 
 export type AgentEvent =
@@ -71,16 +72,30 @@ export async function runAgent(opts: AgentOptions): Promise<AgentOutcome> {
     }
     if (turn.cost !== undefined) totalCost += turn.cost;
 
+    // Cheaper models routinely know what to call and then describe it as text
+    // instead of emitting it. Recover those rather than showing the user raw
+    // JSON and stopping — the model choice should not decide whether the pane
+    // works. A model that emitted calls properly is never second-guessed.
+    let content = turn.content;
+    let toolCalls = turn.toolCalls.map(normalizeCall).filter((c): c is ToolCall => c !== null);
+    if (toolCalls.length === 0) {
+      const salvaged = salvageToolCalls(turn.content);
+      if (salvaged.length > 0) {
+        toolCalls = salvaged;
+        content = stripToolCallText(turn.content);
+      }
+    }
+
     // No tools requested: the model is answering, so the turn is over.
-    if (turn.toolCalls.length === 0) {
-      messages.push({ role: "assistant", content: turn.content });
-      onEvent({ type: "turn_end", content: turn.content, cost: turn.cost });
+    if (toolCalls.length === 0) {
+      messages.push({ role: "assistant", content });
+      onEvent({ type: "turn_end", content, cost: turn.cost });
       return { messages, ok: true, totalCost };
     }
 
-    messages.push({ role: "assistant", content: turn.content, toolCalls: turn.toolCalls });
+    messages.push({ role: "assistant", content, toolCalls });
 
-    for (const call of turn.toolCalls) {
+    for (const call of toolCalls) {
       onEvent({ type: "tool_start", call });
       const result = await runOne(call, execute);
       onEvent({ type: "tool_end", call, result });

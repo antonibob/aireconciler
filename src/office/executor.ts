@@ -53,6 +53,33 @@ export interface Host {
   listSheets(): Promise<Array<{ name: string; position: number }>>;
   readRange(address: string, maxRows: number): Promise<ReadResult>;
   createTable(address: string, hasHeaders: boolean): Promise<{ address: string }>;
+  createChart(spec: ChartSpec): Promise<{ name: string; anchor: string }>;
+}
+
+/** Excel chart types we expose, mapped to the host's own enum strings. */
+export const CHART_TYPES: Record<string, string> = {
+  columnClustered: "ColumnClustered",
+  columnStacked: "ColumnStacked",
+  columnStacked100: "ColumnStacked100",
+  barClustered: "BarClustered",
+  barStacked: "BarStacked",
+  barStacked100: "BarStacked100",
+  line: "Line",
+  lineMarkers: "LineMarkers",
+  pie: "Pie",
+  xyScatter: "XYScatter",
+  area: "Area",
+};
+
+export interface ChartSpec {
+  dataRange: string;
+  /** An Excel.ChartType string, already mapped from our friendlier name. */
+  chartType: string;
+  title: string;
+  seriesBy: "Auto" | "Rows" | "Columns";
+  placement: string | null;
+  valueAxisTitle: string | null;
+  categoryAxisTitle: string | null;
 }
 
 /** A change awaiting the user's yes/no. Never applied by the executor. */
@@ -376,6 +403,48 @@ export function createExecutor(deps: ExecutorDeps) {
           columns: width,
           message:
             "Shown to the user as a diff awaiting their approval. The sheet is unchanged until they accept. Tell the user what you have proposed and why — do not claim it has been applied.",
+        });
+      }
+
+      case "create_chart": {
+        const dataRange = str(call.args, "dataRange");
+        const requested = str(call.args, "chartType");
+        const title = str(call.args, "title");
+        if (!dataRange) return fail(call, "create_chart needs a `dataRange`.");
+        if (!title) return fail(call, "create_chart needs a `title`.");
+        if (!requested) return fail(call, "create_chart needs a `chartType`.");
+        const chartType = CHART_TYPES[requested];
+        if (!chartType) {
+          return fail(
+            call,
+            `Unknown chartType "${requested}". Choose one of: ${Object.keys(CHART_TYPES).join(", ")}.`,
+          );
+        }
+        // A chart of one cell is a number with decoration; say the number.
+        const probe = await host.readRange(dataRange, 200);
+        if (probe.totalRows <= 1 && (probe.values[0]?.length ?? 0) <= 1) {
+          return fail(
+            call,
+            "That range is a single cell. State the number in your reply instead of charting it.",
+          );
+        }
+        const rawSeries = (str(call.args, "seriesBy") ?? "auto").toLowerCase();
+        const seriesBy = rawSeries === "rows" ? "Rows" : rawSeries === "columns" ? "Columns" : "Auto";
+        const res = await host.createChart({
+          dataRange,
+          chartType,
+          title,
+          seriesBy,
+          placement: str(call.args, "placement"),
+          valueAxisTitle: str(call.args, "valueAxisTitle"),
+          categoryAxisTitle: str(call.args, "categoryAxisTitle"),
+        });
+        return ok(call, {
+          created: true,
+          chart: res.name,
+          anchoredAt: res.anchor,
+          chartType: requested,
+          message: "The chart is on the sheet and updates live with the cells. The user can delete it by selecting it and pressing Delete.",
         });
       }
 
