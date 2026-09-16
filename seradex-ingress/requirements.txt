@@ -1,0 +1,13 @@
+# Runner only. The targeting and guard logic has no third-party dependencies
+# and its tests run anywhere -- that is deliberate, so the parts that decide
+# whether to send input can be verified off the Windows box.
+pillow>=10.0
+pytesseract>=0.3.10
+
+# Tesseract itself is a separate install, not a pip package:
+#   https://github.com/UB-Mannheim/tesseract/wiki
+# Then either put it on PATH, or set at the top of your entry point:
+#   pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+# Development
+pytest>=8.0

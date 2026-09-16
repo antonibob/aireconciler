@@ -6,3 +6,9 @@ dist/
 .env
 .env.local
 coverage/
+# seradex-ingress (Python)
+__pycache__/
+*.pyc
+.pytest_cache/
+seradex-ingress/profiles/*.json
+!seradex-ingress/profiles/*.example.json

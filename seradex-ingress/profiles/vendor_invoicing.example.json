@@ -1,0 +1,31 @@
+{
+  "screen": "vendor_invoicing",
+  "window_title_pattern": "Vendor Invoicing",
+  "seradex_version": "6.4.145",
+  "captured_utc": "2026-09-16T00:00:00+00:00",
+  "notes": "EXAMPLE ONLY - coordinates are illustrative. Generate the real profile with tools/capture_profile.py on the runner; anchors captured on one machine are meaningless on another.",
+  "reference_window": {
+    "left": 100,
+    "top": 100,
+    "right": 1300,
+    "bottom": 900
+  },
+  "anchors": [
+    { "name": "po_field",          "kind": "field",  "note": "Tab out of this to autofill", "point": { "x": 320, "y": 180 } },
+    { "name": "invoice_no_field",  "kind": "field",  "note": "", "point": { "x": 320, "y": 220 } },
+    { "name": "invoice_date_mm",   "kind": "field",  "note": "segmented date box 1 of 3", "point": { "x": 320, "y": 260 } },
+    { "name": "invoice_date_dd",   "kind": "field",  "note": "segmented date box 2 of 3", "point": { "x": 352, "y": 260 } },
+    { "name": "invoice_date_yyyy", "kind": "field",  "note": "segmented date box 3 of 3", "point": { "x": 384, "y": 260 } },
+    { "name": "total_field",       "kind": "field",  "note": "", "point": { "x": 320, "y": 320 } },
+    { "name": "save_button",       "kind": "button", "note": "", "point": { "x": 1180, "y": 840 } },
+    { "name": "approve_yes",       "kind": "dialog", "note": "Approved=Yes on the post-save dialog", "point": { "x": 700, "y": 520 } }
+  ],
+  "landmarks": [
+    { "name": "vendorinvoicing", "text": "Vendor Invoicing", "required": true,  "point": { "x": 120, "y": 140 } },
+    { "name": "ponumber",        "text": "PO Number",        "required": false, "point": { "x": 140, "y": 180 } },
+    { "name": "invoicenumber",   "text": "Invoice Number",   "required": false, "point": { "x": 140, "y": 220 } },
+    { "name": "invoicedate",     "text": "Invoice Date",     "required": false, "point": { "x": 140, "y": 260 } },
+    { "name": "total",           "text": "Total",            "required": false, "point": { "x": 140, "y": 320 } },
+    { "name": "vendor",          "text": "Vendor",           "required": false, "point": { "x": 140, "y": 140 } }
+  ]
+}
