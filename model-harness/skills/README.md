@@ -1,19 +1,53 @@
-# agent-discipline
+# Behavioural skills for open-weights agents
 
-A portable behavioural skill for open-weights agents (Hermes, GLM, DeepSeek,
-Qwen, Llama). It encodes the *process* that makes an agent trustworthy — orient
-before claiming, verify before reporting, admit what failed — as an explicit
-numbered procedure rather than as principles.
+Two skills, same goal, different amounts of scaffolding. **Install one, not
+both** — they cover the same ground and stacking them just burns context.
 
-That distinction is the whole design. Frontier models infer good process from
-terse rules. Smaller models follow an explicit procedure with checkable gates
-far more reliably than they follow a principle, so every rule here is stated as
-a step, paired with a contrastive ✗/✓ example, and given its reason (a stated
-reason measurably improves retention across turns).
+| Your model | Install | Why |
+|---|---|---|
+| Hermes, GLM 5.3 Flash, Qwen, Llama, anything ≤ ~70B | **`agent-discipline`** | Needs the explicit procedure |
+| Nemotron 3 Ultra, DeepSeek V4 Pro, GLM 5.3, Kimi | **`agent-integrity`** | Has the procedure; needs the standard |
 
-**It changes process, not reasoning depth.** It will not make a 7B model solve
-what it cannot solve. It stops that model from *claiming* it solved it — which
-is the failure that actually costs you time.
+## The difference
+
+Both encode what makes an agent trustworthy: orient before claiming, verify
+before reporting, admit what failed.
+
+**`agent-discipline`** (144 lines) states it as a numbered procedure with
+checkable gates, a ✗/✓ pair per rule, and a closing checklist. Smaller models
+follow an explicit procedure far more reliably than they follow a principle, and
+a stated reason measurably improves whether a rule survives across turns.
+
+**`agent-integrity`** (81 lines) drops all of that and keeps only the standard.
+A capable model already decomposes tasks well; handing it a rigid five-step loop
+displaces its own judgement with your ritual and measurably *reduces* output
+quality. This is the same lesson frontier labs document for their own models —
+prompts written for weaker predecessors are usually too prescriptive.
+
+What survives into the lean version is everything that is **policy rather than
+scaffolding**: evidence before claims, no fabricated values, hold the project's
+rules for the whole session, edit rather than rewrite, report what failed. No
+amount of capability makes a model volunteer "this is unverified" on its own.
+
+**Neither changes reasoning depth.** They will not make a model solve what it
+cannot solve. They stop it from *claiming* it solved it — which is the failure
+that actually costs you an afternoon.
+
+## Nemotron 3 Ultra — two config notes
+
+Worth getting right, because they interact with the skill:
+
+- **Turn the reasoning trace on** (`enable_thinking=True` in the chat template).
+  For agentic work it is the point of the model, and a complex task's trace runs
+  2k–8k tokens before the final answer. Budget output tokens accordingly.
+- **Do not also write "think step by step" into your prompt.** With a native
+  reasoning trace that is redundant at best, and at worst you get reasoning
+  duplicated into the visible answer. `agent-integrity` deliberately contains no
+  CoT prompting for this reason.
+
+With 1M context and Ruler holding at that length, you can afford to load whole
+files rather than grep-and-hope — which is the cheapest reliability win
+available and removes most of the situations that tempt a model to guess.
 
 ## Installing it
 
@@ -22,7 +56,7 @@ loaders) — drop the folder in and it is picked up:
 
 ```sh
 mkdir -p ~/.claude/skills
-cp -r model-harness/skills/agent-discipline ~/.claude/skills/
+cp -r model-harness/skills/agent-integrity ~/.claude/skills/   # or agent-discipline
 ```
 
 Per-project instead of global: `.claude/skills/` in the repo root.
@@ -32,7 +66,7 @@ frontmatter and use the body as the system prompt, or append it to the one you
 have:
 
 ```python
-SYSTEM = pathlib.Path("agent-discipline/SKILL.md").read_text().split("---", 2)[2]
+SYSTEM = pathlib.Path("agent-integrity/SKILL.md").read_text().split("---", 2)[2]
 ```
 
 **Ollama** — put the same body in a `Modelfile`:
@@ -46,10 +80,14 @@ SYSTEM """<paste body here>"""
 
 ## Tuning it
 
-Treat the file as yours to edit. When your model fails in a way this does not
-cover, add a rule in the same shape: **one step, one ✗/✓ pair, one sentence of
-why.** Keep it tight — a skill that grows past a few hundred lines gets skimmed
-by exactly the models that need it most.
+Treat the files as yours to edit. When your model fails in a way they do not
+cover, add a rule in the same shape as its neighbours — a step with a ✗/✓ pair
+in `agent-discipline`, a bare standard in `agent-integrity`.
+
+Resist growing the lean one. If you find yourself adding procedure to
+`agent-integrity`, first check whether the model actually needed it or whether
+one bad run spooked you; over-constraining a capable model is the specific way
+this gets worse rather than better.
 
 The parity eval in `../parity/` tells you whether an edit actually helped:
 `02-instruction-adherence` in particular measures whether a written rule
