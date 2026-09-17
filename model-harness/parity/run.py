@@ -181,7 +181,7 @@ def run_one(profile: str, task_dir: Path, attempt: int, args) -> Result:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--profiles", nargs="+", default=["claude", "deepseek", "glm"])
+    ap.add_argument("--profiles", nargs="+", default=["claude", "glm-flash"])
     ap.add_argument("--tasks", nargs="+", default=None)
     ap.add_argument("--repeat", type=int, default=1,
                     help="runs per profile/task; >1 exposes run-to-run variance")

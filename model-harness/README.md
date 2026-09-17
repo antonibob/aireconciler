@@ -20,11 +20,21 @@ claude "..."                            # same skills, same tools, different bra
 source model-harness/profiles/activate.sh claude   # back to baseline
 ```
 
-| Profile | Base URL | opus→ | haiku→ |
+| Profile | Base URL | main loop (`opus`) | background (`haiku`) |
 |---|---|---|---|
 | `claude` | *(default)* | — | — |
-| `deepseek` | `https://api.deepseek.com/anthropic` | `deepseek-v4-pro` | `deepseek-flash` |
+| **`glm-flash`** | `https://api.z.ai/api/anthropic` | **`glm-5.3-flash`** | `glm-5.3-flash` |
 | `glm` | `https://api.z.ai/api/anthropic` | `glm-5.3` | `glm-5.3-flash` |
+| `deepseek` | `https://api.deepseek.com/anthropic` | `deepseek-v4-pro` | `deepseek-flash` |
+
+`glm-flash` puts Flash on **every** alias, so the main agent loop really runs on
+Flash instead of quietly falling back to `glm-5.3`. That distinction is easy to
+get wrong — mapping only the `haiku` alias to Flash leaves the agent loop on the
+larger, dearer model while the cost report looks fine.
+
+Against Opus 5 at $5/$25 per MTok, Flash at roughly $0.15/$0.50 is ~33x cheaper
+on input and ~50x on output. That is a big enough gap that the only question
+worth asking is where it stops finishing the job.
 
 ### Three things that will bite you
 
@@ -82,12 +92,46 @@ because "produced working code" and "followed the project's rules" are different
 questions, and only the second one predicts whether you can trust it on a ledger.
 
 ```sh
-python model-harness/parity/run.py --profiles claude deepseek glm --repeat 3
+python model-harness/parity/run.py --repeat 5      # claude vs glm-flash
 python model-harness/parity/report.py model-harness/parity/results.json
 ```
 
-`--repeat 3` matters: a single run tells you almost nothing, because run-to-run
-variance on these models is larger than the gaps you're looking for.
+`--repeat` matters more on Flash than on anything else here: run-to-run variance
+on a small model is comfortably larger than the gaps you are looking for, so a
+single run mostly measures luck. Five is a reasonable floor; at Flash prices the
+whole sweep costs cents.
+
+### Where Flash is likely to give way
+
+Flash is tuned for speed and cost, and long tool-calling loops are exactly where
+small models drift — so expect the three tasks to fail in a specific order:
+
+| Task | Expectation on Flash |
+|---|---|
+| `01-bugfix` | Usually fine. One file, one insight, short loop. |
+| `02-instruction-adherence` | The coin-flip. It will write a *working* function; whether it holds the `Decimal` rule from `CLAUDE.md` while doing so is the open question. |
+| `03-multifile-refactor` | Hardest. Four files, and partial renames that still import cleanly are the classic small-model failure. |
+
+### The diagnostic that tells you what to do about it
+
+This is what the second GLM profile is for. When Flash fails a task, re-run that
+task alone on `glm`:
+
+```sh
+python model-harness/parity/run.py --profiles glm-flash glm \
+    --tasks 03-multifile-refactor --repeat 5
+```
+
+- **`glm-5.3` passes, Flash fails** → capability ceiling. No skill fixes this.
+  Route that *class* of work to the larger model and keep Flash for the rest.
+- **Both fail** → your instructions, not the model. Write the skill, re-run,
+  watch the number move. This is the case you can actually win, and on Flash it
+  is the more common one.
+
+That second branch is the whole "make them behave like Claude" loop. Claude
+infers the rule from two terse lines of `CLAUDE.md`; Flash needs the rule, the
+failure mode it prevents, and a worked example — in a file it reads at the
+moment it matters.
 
 The report prints a pass matrix, cost per task, turns, and a failure list. Read
 that failure list as a to-do: **each failure is a skill to write.** When GLM
