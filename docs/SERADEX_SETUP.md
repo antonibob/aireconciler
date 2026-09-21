@@ -25,6 +25,25 @@ so it runs in the background while you work.
 
 ---
 
+## Step 0 — get an agent onto the machine
+
+Claude Code needs to run **on the Windows machine that can reach
+`HOSTED05\SQL19`**. A cloud session cannot: it has no route to your network.
+
+- **Desktop app** (no terminal): download from <https://claude.com/download>,
+  install, sign in.
+- **PowerShell**: `irm https://claude.ai/install.ps1 | iex`, then run `claude`.
+  No administrator rights required. [Git for Windows](https://git-scm.com/downloads/win)
+  is optional but gives it a proper Bash shell.
+
+Requires a Pro, Max, Team, or Enterprise plan. Verify with `claude --version`.
+
+Then clone this repo on that machine and start the session in it — the local
+agent reads these docs and picks up with the full picture instead of starting
+from nothing. **This file is the handoff.**
+
+---
+
 ## Step 1 — a read-only login (ask the DBA)
 
 The automation must never run as an account that can post. This is for whoever
