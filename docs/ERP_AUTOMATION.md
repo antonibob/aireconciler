@@ -1,10 +1,12 @@
 # Automating Seradex without babysitting the cursor
 
-**Status:** plan / not yet started
-**Context:** a dedicated Talius laptop is being provisioned so automations can run
-on real hardware instead of a VM.
+**Status:** in progress — SQL access confirmed, schema mapping next
 **Decision owner:** Antonio
-**Blocked on:** answers from whoever administers Seradex (see [Next steps](#next-steps))
+**Setup guide:** [`SERADEX_SETUP.md`](./SERADEX_SETUP.md)
+
+> **Update:** a test copy of the ERP database (`ActiveM_Talius_Test`) already
+> exists on `HOSTED05\SQL19`, so the sandbox question below is answered. The
+> dedicated laptop is **deferred** — see [Do we need the second laptop?](#do-we-need-the-second-laptop)
 
 ---
 
@@ -143,19 +145,33 @@ Sequenced: **sandbox or read-only login first**, then let the agent explore
 Questions for the Seradex administrator — none of the above is actionable until
 these are answered:
 
-1. Can we get a **read-only SQL login** against the production database?
-2. Is there a **test / training company database**, and can it be refreshed from
-   production?
+1. Can we get a **read-only SQL login**? (SQL in `SERADEX_SETUP.md`)
+2. ~~Is there a test / training company database?~~ — **yes, `ActiveM_Talius_Test`.**
+   Still worth asking how recently it was refreshed from production.
 3. Does our license include the **import tools or API module** for writes?
-4. Can a **view-only Seradex user** be created for the exploration phase?
+4. Is `ActiveM_Seaton` a related Talius entity or a separate client?
 
-Then, on the new laptop:
+Then, on the machine you already have:
 
-- [ ] Install Python + `pywinauto`, confirm Power Automate Desktop is present
-- [ ] Verify the SQL login and dump the schema for the tables we care about
-- [ ] Run one supervised exploration pass over invoice entry, agent writing notes
-- [ ] Review the notes, correct them, commit as the first workflow skill
-- [ ] Only then: let it run a workflow unattended, against the sandbox
+- [ ] Create the read-only login and prove it can't write
+- [ ] Connect a local agent session (`sqlcmd` to start, MCP after)
+- [ ] Map the AP/PO data model against the test database, agent writing notes
+- [ ] Review those notes, correct them, commit as the first workflow skill
+- [ ] Wire an extract into the `aireconciler` engine
+
+## Do we need the second laptop?
+
+Not yet. Of the four approaches, only the computer-use agent genuinely requires
+dedicated hardware — it takes over the mouse and keyboard, so the machine can't
+be used for anything else while it runs. That is also the **least** valuable of
+the four.
+
+SQL reads are headless and run in the background. Element-based automation
+mostly does too. Both work on the machine you're already sitting at.
+
+The laptop becomes worth buying when a specific workflow has no data-layer path
+**and** has to run unattended or on a schedule. Revisit then, with a concrete
+job to size it against.
 
 ---
 
