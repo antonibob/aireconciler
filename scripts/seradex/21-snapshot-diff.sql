@@ -28,15 +28,16 @@ FROM PO po
 WHERE po.PONo = @PONo;
 
 PRINT '===== B. PO LINES — watch QtyInvoicedToDate =====';
-SELECT pod.PODetailID, pod.QtyOrdered, pod.QtyReceived,
+SELECT pod.PODetailID, pod.QtyToBuy, pod.QtyReceivedToDate,
        pod.QtyInvoicedToDate, pod.UnitCost, pod.ExtendedCost
 FROM PODetails pod
 JOIN PO po ON po.POID = pod.POID
 WHERE po.PONo = @PONo
 ORDER BY pod.PODetailID;
 
-PRINT '===== C. RECEIVING LINES — watch any invoiced flag =====';
-SELECT rd.ReceivingDetailID, rd.PODetailID, rd.QtyReceived
+PRINT '===== C. RECEIVING LINES — watch ysnInvoiced and QtyInvoicedToDate =====';
+SELECT rd.ReceivingDetailID, rd.PODetailID, rd.QtyOrdered, rd.QtyReceived,
+       rd.ysnInvoiced, rd.QtyInvoicedToDate
 FROM ReceivingDetails rd
 JOIN PODetails pod ON pod.PODetailID = rd.PODetailID
 JOIN PO po         ON po.POID        = pod.POID
