@@ -1,6 +1,11 @@
 /* What a payment batch actually covered — invoices paid, credits applied,
    and whether the parts sum to the payment. Read-only.
 
+   NOTE: PaymentAmount exists on BOTH the payment header and the detail.
+   The header is the whole cheque; the DETAIL is what was applied to each
+   invoice. Always sum the detail — summing the header multiplies a payment
+   by the number of invoices it covered.
+
    Run part 1 to find a batch name, then paste it into part 2. */
 
 USE ActiveM_Talius_Test;
@@ -23,7 +28,10 @@ DECLARE @Batch varchar(255) = '<paste a BatchFileName here>';
 SELECT
     pay.BatchFileName,
     v.Name                                        AS vendor,
-    CAST(pay.PaymentAmount AS decimal(19,4))      AS payment_amount,
+    CAST(pay.PaymentAmount AS decimal(19,4))      AS cheque_total,
+    CAST(pd.PaymentAmount  AS decimal(19,4))      AS applied_to_invoice,
+    CAST(pd.Rate           AS decimal(19,6))      AS fx_rate,
+    pd.RecordType,
     pay.PaymentTypeNo,
     inv.InvoiceNo                                 AS invoice_paid,
     inv.InvoiceDate,
