@@ -85,11 +85,58 @@ application uses it.
 
 ---
 
+## The GL entry, in full
+
+`GLJournalEntryID 33734`, journal number `P2609224`, batch `4836`,
+fiscal period **6 / 2027** for a 2026-09-16 invoice (the fiscal calendar is
+offset from the calendar year), `POInvoicingID 17582`, `GLPostedDate` NULL.
+
+Three balanced detail lines:
+
+| Line | GL account | Debit | Credit | Reference |
+|---|---:|---:|---:|---|
+| 1 | 657 — accounts payable | | 5,184.90 | |
+| 2 | 661 — GST receivable | 246.90 | | "GST on 20917 M26-12373" |
+| 3 | 674 — inventory / expense | 4,938.00 | | PO260609 |
+
+Debits 5,184.90 = credits 5,184.90.
+
+Journal numbers are shared across a batch: `GLJournalEntryID 33733` (a
+different invoice, entered 17 minutes earlier) carries the same `P2609224`
+and batch `4836`. A receiving entry in the same window used an `R` prefix
+(`R2609221`), so the prefix encodes the transaction type.
+
+**Day End posts this entry; it does not create it.**
+
+---
+
+## Recommendation: do not write invoices via SQL
+
+A save touches six tables, and the last two are accounting rather than data
+entry. Reproducing them means owning:
+
+- **GL account resolution per line** — 674 here; `PO260619` used 171 and 693
+  as variance accounts, so the account depends on the item
+- **the tax split** and which account receives it
+- **journal numbering** in the `P26xxxxx` sequence, and batch membership
+- **the fiscal period**, which is offset from the calendar year
+- **debit/credit balance** across the whole entry
+
+Seradex performs all of this correctly on every Save. Reimplementing it puts
+the general ledger at risk for a saving that entry automation at the keyboard
+layer achieves without touching posting logic at all.
+
+The **read** side remains highly valuable: the pre-flight match against
+`PO260609` confirmed the invoice was clean, to the penny, in seconds and
+before the ERP was opened. That is where the leverage is.
+
+---
+
 ## Still unknown
 
-- [ ] What the `GLJournalEntry` row contains — posted or pending, and whether
-      its detail lines carry the debits and credits
-- [ ] Whether `GLJournalEntryDetails` gains rows on save, and how many
+- [x] ~~What the `GLJournalEntry` row contains~~ — three balanced lines, see above
+- [x] ~~Whether `GLJournalEntryDetails` gains rows on save~~ — yes, 3 for a
+      6-line invoice: AP credit, GST debit, expense debit
 - [ ] What Day End Processing changes afterwards
 - [ ] Whether a partial invoice (billing some lines, not all) behaves the same
 - [ ] Vendor balance: is it stored anywhere, or derived?
