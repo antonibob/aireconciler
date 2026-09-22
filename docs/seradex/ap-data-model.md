@@ -36,6 +36,65 @@ between the three.
 
 ---
 
+## Confirmed joins (from foreign keys, not inference)
+
+### `POInvoicingDetails` — the three-way match, on one row
+
+| Column | References | Meaning |
+|---|---|---|
+| `POInvoicingID` | `POInvoicing.POInvoicingID` | its invoice header |
+| `PODetailID` | `PODetails.PODetailID` | **what was ordered** |
+| `ReceivingDetailID` | `ReceivingDetails.ReceivingDetailID` | **what was received** |
+| `InvGLAccountID` | `GLAccounts.GLAccountID` | expense coding |
+| `PPVGLAccountID` | `GLAccounts.GLAccountID` | **purchase price variance** |
+| `TaxGroupID` | `TaxGroup.TaxGroupID` | tax treatment |
+| `InvoicedUOMID`, `MiscCustUOMID` | `UOMs.UOMID` | units as invoiced |
+| `JobCostCatID` | `JobCostCat` | job cost category |
+| `WorkOrderDetailID` | `WorkOrderDetails` | job/WO allocation |
+| `ItemSpecID` | `ItemSpecs` | item specification |
+| `InvoiceID`, `InvoiceDetailID` | `Invoice`, `InvoiceDetails` | link to an **AR** invoice — rebill or drop-ship |
+| `DNInvoiceDetailID` | `POInvoicingDetails` (self) | debit note against another line |
+
+Seradex performs the PO/receipt/invoice match itself and stores the result. We
+don't have to reconstruct it.
+
+**`PPVGLAccountID` is significant.** Purchase price variance is posted when the
+invoiced price differs from the PO price — the system already computes and
+codes the exception we would otherwise hunt for.
+
+### Payments
+
+```
+POInvoicingPayments  (PaymentAmount, BatchFileName, PaymentTypeID, DiscountAmt)
+  └─> POInvoicingPaymentDetails
+        ├─> POInvoicingID        -> POInvoicing   (the invoice paid)
+        ├─> CreditPOInvoicingID  -> POInvoicing   (a credit note applied)
+        ├─> GLAccountID          -> GLAccounts
+        └─> PaymentTypeID        -> PaymentTypes
+```
+
+"What did payment X cover?" is `POInvoicingPayments` → `POInvoicingPaymentDetails`
+→ `POInvoicing`. `BatchFileName` groups a payment run, which is the handle for
+tying a batch out to a vendor statement.
+
+Credits are applied explicitly through `CreditPOInvoicingID` rather than being
+netted into an amount, so they can be traced.
+
+### Invoice header
+
+| Column | References |
+|---|---|
+| `DepositPOID` | `PO.POID` — deposit invoices only; the general PO link is at line level |
+| `RemitToVendorID` | `Vendors.VendorID` — pay-to may differ from the ordering vendor |
+| `POInvoicingTypeID` | `POInvoicingTypes` |
+| `StatCodeID` | `StatCodes` — status |
+| `ContactID`, `EmployeeID` | `Contacts`, `Employees` |
+
+`GLJournalEntryDetails.TaxFiledPOInvoicingID` references `POInvoicing`, giving a
+path from an AP invoice to its journal entry — the tie back to the ledger.
+
+---
+
 ## What is *not* AP
 
 | Table | Rows | Actually |
@@ -95,9 +154,12 @@ of it.
 
 - [ ] Sample `POInvoicing` and confirm which columns hold invoice number, date,
       net, GST, total, and the link back to `PO`
-- [ ] Confirm the `PO` ↔ `POInvoicing` join key (`POID`? `PONo`?)
-- [ ] Confirm how `POInvoicingPayments` applies to invoices, and whether one
-      payment can span several
+- [x] ~~Confirm the `PO` ↔ `POInvoicing` join key~~ — line level, via
+      `POInvoicingDetails.PODetailID`
+- [x] ~~Confirm how `POInvoicingPayments` applies to invoices~~ — via
+      `POInvoicingPaymentDetails`; one payment can cover many invoices
+- [ ] Get the money column names on `POInvoicing` / `POInvoicingDetails`
+- [ ] Check whether `PPVGLAccountID` is populated in practice, or only defined
 - [ ] Determine where GST sits — line level, header level, or a tax table
 - [ ] Check `zzBuyItemImport` (1,607 rows, mentions "Primary Vendor Accounting
       AP Code") — probably item master, confirm and dismiss
