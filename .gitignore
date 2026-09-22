@@ -6,3 +6,7 @@ dist/
 .env
 .env.local
 coverage/
+# keystroke recordings — may contain typed values
+keystroke-log.txt
+scripts/seradex/keystroke-log.txt
+*-tree.txt
