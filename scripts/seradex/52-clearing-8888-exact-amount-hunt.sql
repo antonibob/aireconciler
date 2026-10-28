@@ -6,7 +6,9 @@
 -- tax-inclusive for Canadian vendors. PODetails.ExtendedCost is PRE-TAX. So the
 -- hunt tests several bases and tells you which one hit:
 --   net      amount = SUM(ExtendedCost)
---   gross    amount = SUM(ExtendedCost) * 1.05   (BC GST 5%)
+--   gross    amount = SUM(ExtendedCost) * 1.05   (GST 5% only)
+--            amount = SUM(ExtendedCost) * 1.12   (GST 5% + BC PST 7% - Amazon, Canadian Tire)
+--            amount = SUM(ExtendedCost) * 1.07   (PST 7% only)
 --   fx       amount = the USD/EUR figure printed on the statement line
 -- A match on "gross" is just as real as one on "net"; the basis column says which.
 --
@@ -87,7 +89,9 @@ SELECT
       WHEN dk.po_key IS NULL                                    THEN '4 REFERENCE IS NOT A PO'
       WHEN pt.PONo IS NULL                                      THEN '3 PO DOES NOT EXIST IN SERADEX'
       WHEN ABS(pt.po_net   - dk.amt_cad) <= 0.01                THEN '0 EXACT MATCH ON PO NET'
-      WHEN ABS(pt.po_gross - dk.amt_cad) <= 0.01                THEN '0 EXACT MATCH ON PO NET + GST'
+      WHEN ABS(pt.po_gross - dk.amt_cad) <= 0.01                THEN '0 EXACT MATCH ON PO NET + GST 5%'
+      WHEN ABS(pt.po_net * 1.12 - dk.amt_cad) <= 0.01           THEN '0 EXACT MATCH ON PO NET + GST/PST 12%'
+      WHEN ABS(pt.po_net * 1.07 - dk.amt_cad) <= 0.01           THEN '0 EXACT MATCH ON PO NET + PST 7%'
       WHEN dk.amt_fx IS NOT NULL
            AND ABS(pt.po_net - dk.amt_fx) <= 0.01               THEN '0 EXACT MATCH ON PO NET IN ' + dk.fx_ccy
       WHEN dk.amt_fx IS NOT NULL
@@ -169,7 +173,9 @@ SELECT dk.ref                AS file_reference,
        dk.amt_cad            AS file_amount,
        pt.PONo               AS po_found_in_seradex,
        CASE WHEN ABS(pt.po_net - dk.amt_cad) <= 0.01        THEN 'net'
-            WHEN ABS(pt.po_net * 1.05 - dk.amt_cad) <= 0.01 THEN 'net + GST'
+            WHEN ABS(pt.po_net * 1.05 - dk.amt_cad) <= 0.01 THEN 'net + GST 5%'
+            WHEN ABS(pt.po_net * 1.12 - dk.amt_cad) <= 0.01 THEN 'net + GST/PST 12%'
+            WHEN ABS(pt.po_net * 1.07 - dk.amt_cad) <= 0.01 THEN 'net + PST 7%'
             WHEN dk.amt_fx IS NOT NULL
                  AND ABS(pt.po_net - dk.amt_fx) <= 0.01     THEN 'net in ' + dk.fx_ccy
             ELSE 'net + GST in ' + dk.fx_ccy END            AS matched_on,
@@ -180,6 +186,8 @@ SELECT dk.ref                AS file_reference,
 FROM dk
 JOIN pt ON ABS(pt.po_net - dk.amt_cad) <= 0.01
         OR ABS(pt.po_net * 1.05 - dk.amt_cad) <= 0.01
+        OR ABS(pt.po_net * 1.12 - dk.amt_cad) <= 0.01
+        OR ABS(pt.po_net * 1.07 - dk.amt_cad) <= 0.01
         OR (dk.amt_fx IS NOT NULL AND ABS(pt.po_net - dk.amt_fx) <= 0.01)
         OR (dk.amt_fx IS NOT NULL AND ABS(pt.po_net * 1.05 - dk.amt_fx) <= 0.01)
 ORDER BY dk.ref, pt.PONo;
@@ -239,11 +247,15 @@ SELECT dk.ref AS file_reference,
        pod.PODetailID,
        pod.QtyToBuy, pod.QtyReceivedToDate, pod.QtyInvoicedToDate,
        CAST(pod.ExtendedCost AS decimal(19,2)) AS line_extended_cost,
-       CASE WHEN ABS(pod.ExtendedCost - dk.amt_cad) <= 0.01 THEN 'line net'
-            ELSE 'line net + GST' END AS matched_on
+       CASE WHEN ABS(pod.ExtendedCost - dk.amt_cad) <= 0.01        THEN 'line net'
+            WHEN ABS(pod.ExtendedCost * 1.05 - dk.amt_cad) <= 0.01 THEN 'line net + GST 5%'
+            WHEN ABS(pod.ExtendedCost * 1.12 - dk.amt_cad) <= 0.01 THEN 'line net + GST/PST 12%'
+            ELSE 'line net + PST 7%' END AS matched_on
 FROM dk
 JOIN PODetails pod ON ABS(pod.ExtendedCost - dk.amt_cad) <= 0.01
                    OR ABS(pod.ExtendedCost * 1.05 - dk.amt_cad) <= 0.01
+                   OR ABS(pod.ExtendedCost * 1.12 - dk.amt_cad) <= 0.01
+                   OR ABS(pod.ExtendedCost * 1.07 - dk.amt_cad) <= 0.01
 JOIN PO      po ON po.POID     = pod.POID
 JOIN Vendors v  ON v.VendorID  = po.VendorID
 ORDER BY dk.ref, po.PONo, pod.PODetailID;
